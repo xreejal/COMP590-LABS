@@ -5,7 +5,7 @@
 
 // TODO: define your own buffer size
 #define BUFF_SIZE (1<<21)
-//#define BUFF_SIZE [TODO]
+//#define BUFF_SIZE (2 * 1024 * 1024)
 
 int main(int argc, char **argv)
 {
@@ -21,12 +21,14 @@ int main(int argc, char **argv)
   // page allocation, TLB insertion, etc.
   // Thus, we use a dummy write here to trigger page allocation
   // so later access will not suffer from such overhead.
-  //*((char *)buf) = 1; // dummy write to trigger page allocation
+   *((char *)buf) = 1; // dummy write to trigger page allocation
 
 
   // TODO:
   // Put your covert channel setup code here
-
+ for (int i = 0; i < 256; i++) {
+	_mm_clflush(buf + (i * 4096));
+ }
   printf("Please type a message.\n");
 
   bool sending = true;
@@ -36,6 +38,19 @@ int main(int argc, char **argv)
 
       // TODO:
       // Put your covert channel code here
+   for (int i = 0; text_buf[i] != '\0' && text_buf[i] != '\n'; i++) {
+    unsigned char c = (unsigned char)text_buf[i];
+    
+    volatile char *addr = (char *)buf + (c * 4096);
+    char dummy = *addr; 
+
+    for(volatile int sys = 0; sys < 1000000; sys++); 
+
+    _mm_clflush((void*)addr);
+    
+    printf("Sent: %c (offset %d)\n", c, c * 4096);
+  }
+
   }
 
   printf("Sender finished.\n");
