@@ -1,9 +1,10 @@
 #include "utility.h"
 
 // TODO: Uncomment the following lines and fill in the correct size
-//#define L1_SIZE [TODO]
-//#define L2_SIZE [TODO]
-//#define L3_SIZE [TODO]
+#define L1_SIZE (32 * 1024)
+#define L2_SIZE (1024 * 1024)
+#define L3_SIZE (11 * 1024 * 1024)
+
  
 int main (int ac, char **av) {
 
@@ -31,7 +32,8 @@ int main (int ac, char **av) {
 
     // [1.2] TODO: Uncomment the following line to allocate a buffer of a size
     // of your chosing. This will help you measure the latencies at L2 and L3.
-    //uint64_t *eviction_buffer = (uint64_t)malloc(TODO);
+    uint64_t eviction_buffer_size = (uint64_t)(1.5 * L3_SIZE);
+    uint8_t *eviction_buffer = (uint8_t *)malloc(eviction_buffer_size);
 
     // Example: Measure L1 access latency, store results in l1_latency array
     for (int i=0; i<SAMPLES; i++){
@@ -46,16 +48,39 @@ int main (int ac, char **av) {
     // [1.2] TODO: Measure DRAM Latency, store results in dram_latency array
     // ======
     //
+   for (int i=0; i<SAMPLES; i++){
+	clflush((void *)target_buffer);
+	dram_latency[i] = measure_one_block_access_time((uint64_t)target_buffer);
+    }
 
     // ======
     // [1.2] TODO: Measure L2 Latency, store results in l2_latency array
     // ======
     //
-
+    for(int i=0; i<SAMPLES; i++){
+	tmp = target_buffer[0];
+	uint64_t l1_eviction_size = (uint64_t)(1.5*L1_SIZE);
+	for (int pass=0; pass<3; pass++){
+	    for (uint64_t j=0; j<l1_eviction_size; j+=64){
+	        tmp = eviction_buffer[j];
+	    }
+	}
+	l2_latency[i] = measure_one_block_access_time((uint64_t)target_buffer);
+    }	
     // ======
     // [1.2] TODO: Measure L3 Latency, store results in l3_latency array
     // ======
     //
+    for(int i=0; i<SAMPLES; i++){
+	tmp = target_buffer[0];
+	uint64_t l2_eviction_size = (uint64_t)(1.5*L2_SIZE);
+	for(int pass=0; pass<3; pass++){
+	    for(uint64_t j=0; j<l2_eviction_size; j+=64){
+	        tmp = eviction_buffer[j];
+	    }
+	}
+	l3_latency[i] = measure_one_block_access_time((uint64_t)target_buffer);
+    }
 
 
     // Print the results to the screen
@@ -66,7 +91,7 @@ int main (int ac, char **av) {
     free(target_buffer);
 
     // [1.2] TODO: Uncomment this line once you uncomment the eviction_buffer creation line
-    //free(eviction_buffer);
+    free(eviction_buffer);
     return 0;
 }
 
