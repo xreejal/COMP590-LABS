@@ -1,4 +1,3 @@
-
 #include "util.h"
 
 /* Measure the time it takes to access a block with virtual address addr. */
