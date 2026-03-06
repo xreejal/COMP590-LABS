@@ -54,7 +54,8 @@ int main() {
             }
         }
 
-        scores[slow_set]++;
+        if (slow_set >= 0)
+            scores[slow_set]++;
     }
 
     int best_score = 0;
