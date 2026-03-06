@@ -50,7 +50,7 @@ int main() {
     int scores[NUM_L2_CACHE_SETS] = {0};
 
     // repeat measurement multiple times to reduce noise
-    for (int r = 0; r < 50; r++) {
+    for (int r = 0; r < 200; r++) {
 
         for (int set = 0; set < NUM_L2_CACHE_SETS; set++) {
 
