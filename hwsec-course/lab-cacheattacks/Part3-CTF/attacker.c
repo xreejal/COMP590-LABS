@@ -6,8 +6,8 @@
 
 #define NUM_L2_CACHE_SETS 1024
 #define WAYS 16
-#define REPEATS 300
-#define THRESHOLD 300
+#define REPEATS 10000
+#define THRESHOLD 350
 
 // Read timestamp counter
 static inline uint64_t rdtsc() {
@@ -69,7 +69,7 @@ int main() {
         asm volatile("mfence; lfence");
 
         // give victim time to run
-        for (volatile int d = 0; d < 20000; d++);
+        for (volatile int d = 0; d < 100000; d++);
 
         // PROBE all sets
         for (int set = 0; set < NUM_L2_CACHE_SETS; set++) {
