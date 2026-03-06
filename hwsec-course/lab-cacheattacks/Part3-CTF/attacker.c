@@ -37,7 +37,7 @@ char* get_buffer() {
 void get_partial_eviction_set(char *buf, char *eviction_set[WAYS], int set_index) {
 
     for (int i = 0; i < WAYS; i++) {
-        eviction_set[i] = buf + (i << 16) + (set_index << 6);
+        eviction_set[i] = buf + (i << 15) + (set_index << 6);
     }
 }
 
