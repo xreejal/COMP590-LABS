@@ -30,5 +30,3 @@ char *binary_to_string(char *data);
 int string_to_int(char* s);
 
 #endif
-util.h
-Displaying util.h.
