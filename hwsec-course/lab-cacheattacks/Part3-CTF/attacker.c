@@ -7,7 +7,7 @@
 #define NUM_L2_CACHE_SETS 1024
 #define WAYS 16
 #define REPEATS 10000
-#define THRESHOLD 350
+#define THRESHOLD 200
 
 // Read timestamp counter
 static inline uint64_t rdtsc() {
