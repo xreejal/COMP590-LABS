@@ -3,7 +3,7 @@
 #include <stdint.h>
 #include <stdio.h>
 
-#define BUFF_SIZE (2*1024*1024)
+#define BUFF_SIZE (NUM_SETS * 65536)
 #define NUM_SETS 1024
 #define STRIDE 65536
 #define ROUNDS 500
