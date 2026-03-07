@@ -84,7 +84,7 @@ int main() {
             for(int set = 0; set < NUM_L2_CACHE_SETS; set++) {
 
                 int set = perm[i];
-                
+
                 /* PRIME this set */
                 for(int w = 0; w < WAYS; w++) {
                     tmp ^= *eviction_sets[set][w];
