@@ -28,7 +28,19 @@ int main() {
     printf("Attacker ready. Prime+Probe starting...\n");
 
     /* allocate large buffer */
-    posix_memalign((void**)&buf, 4096, NUM_L2_CACHE_SETS * STRIDE);
+    buf = mmap(NULL,
+           2*1024*1024,
+           PROT_READ | PROT_WRITE,
+           MAP_POPULATE | MAP_ANONYMOUS | MAP_PRIVATE | MAP_HUGETLB,
+           -1,
+           0);
+
+    if(buf == (void*)-1){
+    perror("mmap failed");
+    exit(1);
+    }
+
+    *((char*)buf) = 1;
 
     /* build eviction sets */
     for(int set = 0; set < NUM_L2_CACHE_SETS; set++) {
