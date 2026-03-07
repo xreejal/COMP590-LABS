@@ -75,31 +75,27 @@ int main() {
 
         for(int r = 0; r < REPEATS; r++) {
             int perm[NUM_L2_CACHE_SETS];
-            for(int i = 0; i < NUM_L2_CACHE_SETS; i++) {
+            for(int i = 0; i < NUM_L2_CACHE_SETS; i++){
                 perm[i] = i;
             }
+
             shuffle(perm);
-            
-            /* PRIME */
-            for(int i = 0; i < NUM_L2_CACHE_SETS; i++) {
+
+            for(int set = 0; set < NUM_L2_CACHE_SETS; set++) {
 
                 int set = perm[i];
-
+                
+                /* PRIME this set */
                 for(int w = 0; w < WAYS; w++) {
                     tmp ^= *eviction_sets[set][w];
                 }
-            }
 
-            wait_cycles(2000);
+                wait_cycles(2000);
 
-            /* PROBE */
-            for(int i = 0; i < NUM_L2_CACHE_SETS; i++) {
-
-                int set = perm[i];
-
+                /* PROBE this set */
                 uint64_t start = rdtsc();
 
-                for(int w = WAYS-1; w >= 0; w--) {
+                for(int w = 0; w < WAYS; w++) {
                     tmp ^= *eviction_sets[set][w];
                 }
 
@@ -108,7 +104,6 @@ int main() {
                 scores[set] += (end - start);
             }
         }
-
         int best_set = 0;
         uint64_t best_latency = 0;
 
