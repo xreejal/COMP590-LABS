@@ -7,7 +7,7 @@
 #define NUM_L2_CACHE_SETS 1024
 #define WAYS 8
 #define REPEATS 10000
-#define THRESHOLD 220
+#define THRESHOLD 150
 
 // Read timestamp counter
 static inline uint64_t rdtsc() {
@@ -36,7 +36,7 @@ char* get_buffer() {
 // Build eviction set for one cache set
 void get_partial_eviction_set(char *buf, char *eviction_set[WAYS], int set_index) {
     for (int i = 0; i < WAYS; i++) {
-        eviction_set[i] = buf + (i << 15) + (set_index << 6);
+        eviction_set[i] = buf + (i << 16) + (set_index << 6);
     }
 }
 
@@ -68,7 +68,7 @@ int main() {
             asm volatile("mfence; lfence");
 
             // Give victim time
-            usleep(500);
+            usleep(1000);
 
             // PROBE
             for (int set = 0; set < NUM_L2_CACHE_SETS; set++) {
