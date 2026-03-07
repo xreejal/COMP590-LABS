@@ -6,7 +6,7 @@
 
 #define NUM_L2_CACHE_SETS 1024
 #define WAYS 8
-#define REPEATS 10000
+#define REPEATS 15000
 #define THRESHOLD 350
 
 // Read timestamp counter
@@ -69,7 +69,7 @@ int main() {
         asm volatile("mfence; lfence");
 
         // give victim time to run
-        for (volatile int d = 0; d < 500000; d++);
+        for (volatile int d = 0; d < 300000; d++);
 
         // PROBE all sets
         for (int set = 0; set < NUM_L2_CACHE_SETS; set++) {
