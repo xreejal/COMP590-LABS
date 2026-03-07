@@ -81,7 +81,7 @@ int main() {
 
             shuffle(perm);
 
-            for(int set = 0; set < NUM_L2_CACHE_SETS; set++) {
+            for(int i = 0; i < NUM_L2_CACHE_SETS; i++) {
 
                 int set = perm[i];
 
