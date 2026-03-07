@@ -5,9 +5,9 @@
 #include <unistd.h>
 
 #define NUM_L2_CACHE_SETS 1024
-#define WAYS 8
-#define REPEATS 10000
-#define THRESHOLD 180
+#define WAYS 4
+#define REPEATS 20000
+#define THRESHOLD 150
 
 // Read timestamp counter
 static inline uint64_t rdtsc() {
