@@ -7,7 +7,7 @@
 #include "util.h"
 
 #define NUM_L2_CACHE_SETS 1024
-#define WAYS 8
+#define WAYS 16
 #define LINE_SIZE 64
 #define STRIDE (NUM_L2_CACHE_SETS * LINE_SIZE)
 
