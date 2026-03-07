@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <limits.h>
+#include <sys/mman.h>
 #include "util.h"
 
 #define NUM_L2_CACHE_SETS 1024
