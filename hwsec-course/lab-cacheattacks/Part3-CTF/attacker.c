@@ -39,7 +39,8 @@ void shuffle(int *arr) {
 }
 
 int main() {
-
+    /* works 2/3 of time. Randomize access, reverse probe, no usleep
+    */
     printf("Attacker ready. Prime+Probe starting...\n");
 
     buf = mmap(NULL,
