@@ -60,7 +60,7 @@ int main() {
 
                 uint64_t start = rdtsc();
 
-                for(int w = WAYS-1; w >= 0; w--)
+                for(int w = WAYS-1; w >= 0; w--){
                     tmp ^= *eviction_sets[set][w];
                 }
 
