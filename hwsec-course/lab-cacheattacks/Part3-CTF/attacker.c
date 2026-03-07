@@ -7,7 +7,7 @@
 #include "util.h"
 
 #define NUM_L2_CACHE_SETS 1024
-#define WAYS 16
+#define WAYS 8
 #define LINE_SIZE 64
 #define STRIDE (NUM_L2_CACHE_SETS * LINE_SIZE)
 
@@ -65,6 +65,8 @@ int main() {
 
     volatile uint8_t tmp = 0;
 
+    srand(rdtsc());
+
     while(1) {
 
         uint64_t scores[NUM_L2_CACHE_SETS] = {0};
@@ -95,14 +97,15 @@ int main() {
 
                 int set = perm[i];
 
+                uint64_t start = rdtsc();
+
                 for(int w = WAYS-1; w >= 0; w--) {
-
-                    uint64_t start = rdtsc();
                     tmp ^= *eviction_sets[set][w];
-                    uint64_t end = rdtsc();
-
-                    scores[set] += (end - start);
                 }
+
+                uint64_t end = rdtsc();
+
+                scores[set] += (end - start);
             }
         }
 
