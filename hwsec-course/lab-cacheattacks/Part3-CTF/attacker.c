@@ -5,8 +5,8 @@
 #include <unistd.h>
 
 #define NUM_L2_CACHE_SETS 1024
-#define WAYS 4
-#define REPEATS 5000
+#define WAYS 16
+#define REPEATS 3000
 #define THRESHOLD 50
 
 // Read timestamp counter
