@@ -4,7 +4,7 @@
 #include <sys/mman.h>
 #include <unistd.h>
 
-#define NUM_L2_CACHE_SETS 1024
+#define NUM_L2_CACHE_SETS 128
 #define WAYS 16
 #define REPEATS 2000
 #define THRESHOLD 50
@@ -37,7 +37,7 @@ char* get_buffer() {
 void get_partial_eviction_set(char *buf, char *eviction_set[WAYS], int set_index) {
     for (int i = 0; i < WAYS; i++) {
         // stride = NUM_L2_CACHE_SETS * 64 = 1024 * 64 = 65536
-        eviction_set[i] = buf + set_index * 64 + i * 65536;
+        eviction_set[i] = buf + set_index*64 + i*128*64; // stride = NUM_L2_CACHE_SETS * line_size
     }
 }
 
@@ -67,7 +67,7 @@ int main() {
             asm volatile("mfence; lfence");
 
             // Give victim time to run
-            usleep(20);
+            usleep(500);
 
             // PROBE all sets
             for (int set = 0; set < NUM_L2_CACHE_SETS; set++) {
