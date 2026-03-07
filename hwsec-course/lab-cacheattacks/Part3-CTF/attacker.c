@@ -59,7 +59,7 @@ int main() {
         for(int r = 0; r < REPEATS; r++) {
 
             /* PRIME */
-            for(int set = 0; set < NUM_L2_CACHE_SETS; set++) {
+            for(int set = 0; set < 256; set++) {
                 for(int w = 0; w < WAYS; w++) {
                     tmp ^= *eviction_sets[set][w];
                 }
@@ -69,7 +69,7 @@ int main() {
             usleep(500);
 
             /* PROBE */
-            for(int set = 0; set < NUM_L2_CACHE_SETS; set++) {
+            for(int set = 0; set < 256; set++) {
 
                 uint64_t start = rdtsc();
 
@@ -87,7 +87,7 @@ int main() {
         int best_set = 0;
         uint64_t max_score = 0;
 
-        for(int set = 0; set < NUM_L2_CACHE_SETS; set++) {
+        for(int set = 0; set < 256; set++) {
             uint64_t avg = scores[set] / REPEATS;
 
             if(avg > max_score) {
