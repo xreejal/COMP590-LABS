@@ -11,7 +11,7 @@
 #define LINE_SIZE 64
 #define STRIDE (NUM_L2_CACHE_SETS * LINE_SIZE)
 
-#define REPEATS 1000          // number of prime-probe repetitions per round
+#define REPEATS 2000          // number of prime-probe repetitions per round
 
 volatile uint8_t *buf;
 volatile uint8_t *eviction_sets[NUM_L2_CACHE_SETS][WAYS];
@@ -146,7 +146,7 @@ int main() {
         rounds++;
 
         // occasional decay to prevent old votes from dominating
-        if(rounds % 50 == 0){
+        if(rounds % 200 == 0){
             for(int i = 0; i < NUM_L2_CACHE_SETS; i++)
                 votes[i] /= 2;
         }
