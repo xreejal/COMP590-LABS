@@ -1,14 +1,33 @@
 #include "util.h"
 #include <sys/mman.h>
 
-#define REGION_BYTES (1 << 21)
-#define INPUT_SIZE 128
-#define WARMUP_ROUNDS 5
-#define CACHE_LINE_SIZE 64
-#define SET_SCALE 4
-#define ADDRESS_VARIANTS 32
+#include <ctype.h>
+#include <errno.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <time.h>
 
-static void *allocate_shared_region(void)
+#ifndef MAP_POPULATE
+#define MAP_POPULATE 0
+#endif
+
+#ifndef MAP_ANONYMOUS
+#define MAP_ANONYMOUS MAP_ANON
+#endif
+
+#ifndef MAP_HUGETLB
+#define MAP_HUGETLB 0
+#endif
+
+#define REGION_BYTES (2ULL * 1024ULL * 1024ULL)
+#define CACHE_LINE_BYTES 64ULL
+#define L2_NUM_SETS 1024
+#define L2_ASSOCIATIVITY 4
+#define EV_SET_SIZE (L2_ASSOCIATIVITY + 2)
+#define SET_STRIDE (CACHE_LINE_BYTES * L2_NUM_SETS)
+#define INPUT_SIZE 128
+
+static void *allocate_channel_region(void)
 {
     void *region = mmap(NULL, REGION_BYTES, PROT_READ | PROT_WRITE,
                         MAP_POPULATE | MAP_ANONYMOUS | MAP_PRIVATE | MAP_HUGETLB,
@@ -22,24 +41,51 @@ static void *allocate_shared_region(void)
     return region;
 }
 
-static void warm_up_region(void *region, volatile char *sink)
+static void warm_up_channel(void *region, volatile char *sink)
 {
-    *((char *)region) = 1;
+    ((volatile char *)region)[0] = 1;
 
-    printf("Warming up...\n");
-    for (int round = 0; round < WARMUP_ROUNDS; round++) {
-        for (uint64_t offset = 0; offset < REGION_BYTES; offset += CACHE_LINE_SIZE) {
-            *sink = *((char *)region + offset);
-        }
+    for (unsigned long i = 0; i < REGION_BYTES; i += CACHE_LINE_BYTES) {
+        *sink = ((volatile char *)region)[i];
     }
 }
 
-static void keep_sending_value(void *region, int set_index, volatile char *sink)
+static int parse_input_value(const char *line, int *out)
 {
+    while (line && isspace((unsigned char)*line)) {
+        line++;
+    }
+
+    if (!line || *line == '\0') {
+        return 0;
+    }
+
+    errno = 0;
+    char *tail = NULL;
+    long parsed = strtol(line, &tail, 10);
+
+    if (tail == line || errno != 0) {
+        return 0;
+    }
+
+    while (isspace((unsigned char)*tail)) {
+        tail++;
+    }
+    if (*tail != '\0' || parsed < 0 || parsed > 255) {
+        return 0;
+    }
+
+    *out = (int)parsed;
+    return 1;
+}
+
+static void hammer_set(void *region, int set_index, volatile char *sink)
+{
+    const uint64_t base = (uint64_t)region;
     while (1) {
-        for (int way = 0; way < ADDRESS_VARIANTS; way++) {
-            uint64_t offset = ((uint64_t)way << 16) | ((uint64_t)set_index << 6);
-            *sink = *((char *)region + offset);
+        for (int way = 0; way < EV_SET_SIZE; way++) {
+            uint64_t offset = (uint64_t)set_index * CACHE_LINE_BYTES + (uint64_t)way * SET_STRIDE;
+            *sink = ((volatile char *)(base + offset))[0];
         }
     }
 }
@@ -48,29 +94,36 @@ int main(int argc, char **argv)
 {
     (void)argc;
     (void)argv;
+    setvbuf(stdout, NULL, _IOLBF, 0);
 
-    void *region = allocate_shared_region();
+    void *region = allocate_channel_region();
     volatile char sink = 0;
-    warm_up_region(region, &sink);
 
-    printf("Sender ready. Please type a message.\n");
+    warm_up_channel(region, &sink);
+
+    printf("DeadDrop sender ready.\n");
+    printf("Type an integer [0,255]. Ctrl-D to stop.\n");
 
     while (1) {
         char line[INPUT_SIZE];
-        fgets(line, sizeof(line), stdin);
 
-        int value = atoi(line);
-        if (value < 0 || value > 255) {
-            printf("Please enter a value between 0 and 255\n");
+        if (!fgets(line, sizeof(line), stdin)) {
+            printf("No input. Exiting.\n");
+            break;
+        }
+
+        int value = 0;
+        if (!parse_input_value(line, &value)) {
+            printf("Invalid input. Enter one integer between 0 and 255.\n");
             continue;
         }
 
-        int set_index = value * SET_SCALE;
-        printf("Sending %d (set %d)...\n", value, set_index);
-        printf("Press Ctrl+C when receiver shows the correct value.\n");
+        int set_index = value;
+        printf("Sending value=%d mapped to set=%d.\n", value, set_index);
+        printf("Press Ctrl+C when receiver confirms.\n");
 
-        keep_sending_value(region, set_index, &sink);
-        printf("Done sending %d\n", value);
+        hammer_set(region, set_index, &sink);
+        printf("Done sending %d.\n", value);
     }
 
     munmap(region, REGION_BYTES);

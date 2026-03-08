@@ -1,0 +1,10 @@
+1.5 Design Notes
+===============================
+- Eviction buffer size used: 1.5 x cache_size
+- Target probe count: 10000 samples each level
+- Buffer line stride used to force eviction: cache line based stepping
+- JSON format is used by run.py and graph.py for automation
+
+Potential tuning notes:
+- Measure noise under load and report chosen thresholds
+- Confirm clear cluster separation between levels

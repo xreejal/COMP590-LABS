@@ -1,0 +1,27 @@
+1.4 Timing Results (Observed)
+===============================
+Record median/mean/95th percentile from collected samples.
+
+L1 latency (cycles):
+  min:
+  median:
+  mean:
+  max:
+
+L2 latency (cycles):
+  min:
+  median:
+  mean:
+  max:
+
+L3 latency (cycles):
+  min:
+  median:
+  mean:
+  max:
+
+DRAM latency (cycles):
+  min:
+  median:
+  mean:
+  max:
