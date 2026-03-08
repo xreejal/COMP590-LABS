@@ -97,7 +97,7 @@ int main() {
         for(int r = 0; r < REPEATS; r++) {
 
             /* PRIME all sets */
-            for(int set = 16; set < NUM_L2_CACHE_SETS-16; set++)
+            for(int i = 16; i < NUM_L2_CACHE_SETS-16; i++)
                 for(int w = 0; w < WAYS; w++)
                     tmp ^= *eviction_sets[set][w];
 
@@ -105,7 +105,7 @@ int main() {
 
             /* PROBE all sets */
             for(int i = 0; i < NUM_L2_CACHE_SETS; i++) {
-                int set = perm[i]
+                int set = perm[i];
 
                 uint64_t start = rdtsc();
 
