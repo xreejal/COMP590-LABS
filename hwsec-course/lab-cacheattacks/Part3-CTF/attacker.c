@@ -8,7 +8,7 @@
 #define NUM_L2_CACHE_SETS 1024
 #define WAYS 16
 #define LINE_SIZE 64
-#define STRIDE (NUM_L2_CACHE_SETS * LINE_SIZE * 2)
+#define STRIDE (NUM_L2_CACHE_SETS * LINE_SIZE)
 
 #define REPEATS 2000        // Prime+probe repetitions per round
 #define VOTE_DECAY 200      // Decay old votes every N rounds
