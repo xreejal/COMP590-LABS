@@ -67,6 +67,9 @@ int main() {
 
     srand(rdtsc());
 
+    int votes[NUM_L2_CACHE_SETS] = {0};
+    int rounds = 0;
+
     while(1) {
 
         uint64_t scores[NUM_L2_CACHE_SETS] = {0};
@@ -86,6 +89,8 @@ int main() {
             int set = perm[i];
 
             for(int w = 0; w < WAYS; w++) {
+
+                int idx = (w + r) % WAYS;
                 tmp ^= *eviction_sets[set][w];
             }
         }
@@ -122,8 +127,25 @@ int main() {
             }
         }
 
-        printf("Guessed flag: %d (latency=%lu)\n", best_set, best_latency);
-    }
+        votes[best_set]++;
+        rounds++;
+
+        if(rounds % 5 == 0){
+
+            int best_vote_set = 0;
+            int best_votes = 0;
+
+            for(int i = 0; i < NUM_L2_CACHE_SETS; i++){
+                if(votes[i] > best_votes){
+                    best_votes = votes[i];
+                    best_vote_set = i;
+                }
+            }
+            printf("Likely flag: %d (votes=%d)\n", best_vote_set, best_votes);
+            }
+        }
+
+        
 
     return 0;
 }
