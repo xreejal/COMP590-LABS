@@ -81,10 +81,16 @@ int main() {
                 for(int w = 0; w < WAYS; w++)
                     tmp ^= *eviction_sets[set][w];
 
-            wait_cycles(20000);
+            wait_cycles(60000);
+
+            int order[NUM_L2_CACHE_SETS];
+            for(int i=0;i<NUM_L2_CACHE_SETS;i++) order[i]=i;
+            shuffle(order);
 
             /* PROBE all sets */
-            for(int set = 0; set < NUM_L2_CACHE_SETS; set++) {
+            for(int i = 0; i < NUM_L2_CACHE_SETS; i++) {
+
+                int set = order[i];
 
                 uint64_t start = rdtsc();
 
