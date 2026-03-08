@@ -11,7 +11,7 @@
 #define LINE_SIZE 64
 #define STRIDE (NUM_L2_CACHE_SETS * LINE_SIZE)
 
-#define REPEATS 1000
+#define REPEATS 600
 #define THRESHOLD 150
 
 volatile uint8_t *buf;
@@ -70,7 +70,7 @@ int main() {
     srand(rdtsc());
 
     while(1) {
-
+        int order[NUM_L2_CACHE_SETS];
         for(int i = 0; i < NUM_L2_CACHE_SETS; i++)
             scores[i] = 0;
 
@@ -83,7 +83,6 @@ int main() {
 
             wait_cycles(60000);
 
-            int order[NUM_L2_CACHE_SETS];
             for(int i=0;i<NUM_L2_CACHE_SETS;i++) order[i]=i;
             shuffle(order);
 
@@ -115,7 +114,7 @@ int main() {
 
         printf("Guessed flag: %d (score=%lu)\n", best_set, best_latency);
 
-        wait_cycles(10000);
+        wait_cycles(10000 + (rand() % 20000));
     }
 
     return 0;
