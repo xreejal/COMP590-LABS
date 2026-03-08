@@ -102,6 +102,7 @@ int main() {
                 for(int w = 0; w < WAYS; w++){
                     tmp ^= *eviction_sets[set][w];
                 }
+            }
 
              wait_cycles(sample_wait);
 
