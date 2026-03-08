@@ -73,10 +73,11 @@ int main() {
         uint64_t scores[NUM_L2_CACHE_SETS] = {0};
 
         
-
+        int perm[NUM_L2_CACHE_SETS];
+        
         for(int r = 0; r < REPEATS; r++) {
 
-            int perm[NUM_L2_CACHE_SETS];
+            
             for(int i = 0; i < NUM_L2_CACHE_SETS; i++)
                 perm[i] = i;
 
@@ -103,8 +104,7 @@ int main() {
 
                 uint64_t latency = rdtsc() - start;
 
-                if (latency > THRESHOLD)
-                    scores[set]++;
+                score[set] += latency;
             }
         }
 
@@ -112,9 +112,6 @@ int main() {
         uint64_t best_latency = 0;
 
         for(int set = 0; set < NUM_L2_CACHE_SETS; set++) {
-
-            uint64_t avg = scores[set] / REPEATS;
-
             if(avg > best_latency) {
                 best_latency = avg;
                 best_set = set;
