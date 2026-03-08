@@ -14,7 +14,7 @@
 #define VOTE_DECAY 200      // Decay old votes every N rounds
 
 volatile uint8_t *buf;
-volatile uint8_t *eviction_sets[NUM_L2_CACHE_SETS][WAYS];
+uint8_t *eviction_sets[NUM_L2_CACHE_SETS][WAYS];
 
 // Read timestamp counter
 static inline uint64_t rdtsc() {
@@ -124,7 +124,7 @@ int main() {
             for(int i = 16; i < NUM_L2_CACHE_SETS-16; i++){
                 int set = perm[i];
                 for(int w = 0; w < WAYS; w++){
-                    tmp ^= *eviction_sets[set][w];
+                    tmp ^= *(volatile uint8_t*)eviction_sets[set][w];
                 }
             }
 
@@ -137,7 +137,7 @@ int main() {
                 uint64_t start = rdtsc();
 
                 for(int w = WAYS-1; w >= 0; w++)
-                    tmp ^= *eviction_sets[set][w];
+                    tmp ^= *(volatile uint8_t*)eviction_sets[set][w];
 
                 uint64_t end = rdtsc();
 
