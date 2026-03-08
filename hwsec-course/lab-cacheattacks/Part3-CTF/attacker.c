@@ -58,7 +58,7 @@ int main() {
     printf("Attacker ready. Prime+Probe starting...\n");
 
     buf = mmap(NULL,
-               2*1024*1024,
+               4*1024*1024,
                PROT_READ | PROT_WRITE,
                MAP_POPULATE | MAP_ANONYMOUS | MAP_PRIVATE | MAP_HUGETLB,
                -1, 0);
@@ -94,7 +94,12 @@ int main() {
     int perm[NUM_L2_CACHE_SETS];
 
     while(1){
-        for(int i=0;i<NUM_L2_CACHE_SETS;i++) perm[i]=i;
+        for(int i=0;i<NUM_L2_CACHE_SETS;i++){
+            scores[i] = 0;
+        }
+        for(int i=0;i<NUM_L2_CACHE_SETS;i++){
+            perm[i]=i;
+        }
         shuffle(perm);
 
         // Prime+Probe loop
