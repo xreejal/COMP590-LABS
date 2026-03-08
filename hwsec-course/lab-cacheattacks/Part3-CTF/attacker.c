@@ -62,7 +62,10 @@ int main() {
                PROT_READ | PROT_WRITE,
                MAP_POPULATE | MAP_ANONYMOUS | MAP_PRIVATE | MAP_HUGETLB,
                -1, 0);
-    if(buf == (void*)-1){ perror("mmap failed"); exit(1); }
+    if(buf == MAP_FAILED){
+        perror("mmap failed");
+        exit(1);
+    }
 
     *((char*)buf) = 1;
 
@@ -87,9 +90,10 @@ int main() {
     int votes[NUM_L2_CACHE_SETS] = {0};
     int rounds = 0;
 
+    uint64_t scores[NUM_L2_CACHE_SETS] = {0};
+    int perm[NUM_L2_CACHE_SETS];
+
     while(1){
-        uint64_t scores[NUM_L2_CACHE_SETS] = {0};
-        int perm[NUM_L2_CACHE_SETS];
         for(int i=0;i<NUM_L2_CACHE_SETS;i++) perm[i]=i;
         shuffle(perm);
 
