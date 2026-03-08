@@ -87,11 +87,9 @@ int main() {
     int votes[NUM_L2_CACHE_SETS] = {0};
     int rounds = 0;
 
-    uint64_t *scores = malloc(sizeof(uint64_t)*NUM_L2_CACHE_SETS);
-    int *perm = malloc(sizeof(int)*NUM_L2_CACHE_SETS);
-
     while(1){
-        
+        uint64_t scores[NUM_L2_CACHE_SETS] = {0};
+        int perm[NUM_L2_CACHE_SETS];
         for(int i=0;i<NUM_L2_CACHE_SETS;i++) perm[i]=i;
         shuffle(perm);
 
@@ -99,22 +97,18 @@ int main() {
         for(int r = 0; r < REPEATS; r++) {
 
             /* PRIME all sets */
-            for(int i = 16; i < NUM_L2_CACHE_SETS-16; i++){
-                int set = perm[i];
-                for(int w = 0; w < WAYS; w++){
+            for(int set = 0; set < NUM_L2_CACHE_SETS; set++)
+                for(int w = 0; w < WAYS; w++)
                     tmp ^= *eviction_sets[set][w];
-                }
-            }
 
              wait_cycles(sample_wait);
 
             /* PROBE all sets */
-            for(int i = 0; i < NUM_L2_CACHE_SETS; i++) {
-                int set = perm[i];
+            for(int set = 0; set < NUM_L2_CACHE_SETS; set++) {
 
                 uint64_t start = rdtsc();
 
-                for(int w = WAYS-1; w >= 0; w++)
+                for(int w = 0; w < WAYS; w++)
                     tmp ^= *eviction_sets[set][w];
 
                 uint64_t end = rdtsc();
