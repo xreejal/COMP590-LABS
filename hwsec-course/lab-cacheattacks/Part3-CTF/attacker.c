@@ -113,7 +113,7 @@ int main() {
 
         for(int set = 0; set < NUM_L2_CACHE_SETS; set++) {
             if(scores[set] > best_latency) {
-                best_latency = avg;
+                best_latency = scores[set];
                 best_set = set;
             }
         }
