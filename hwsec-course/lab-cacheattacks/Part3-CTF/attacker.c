@@ -8,13 +8,13 @@
 #define NUM_L2_CACHE_SETS 1024
 #define WAYS 16
 #define LINE_SIZE 64
-#define STRIDE (NUM_L2_CACHE_SETS * LINE_SIZE)
+#define STRIDE (NUM_L2_CACHE_SETS * LINE_SIZE * 2)
 
 #define REPEATS 2000        // Prime+probe repetitions per round
 #define VOTE_DECAY 200      // Decay old votes every N rounds
 
 volatile uint8_t *buf;
-uint8_t *eviction_sets[NUM_L2_CACHE_SETS][WAYS];
+volatile uint8_t *eviction_sets[NUM_L2_CACHE_SETS][WAYS];
 
 // Read timestamp counter
 static inline uint64_t rdtsc() {
@@ -43,30 +43,15 @@ void shuffle(int *arr) {
 
 // Compute median
 uint64_t median(uint64_t *arr, int n) {
-    uint64_t *temp = malloc(sizeof(uint64_t) * n);
-    if(!temp){
-        perror("malloc");
-        exit(1);
-    }
-
-    for(int i=0;i<n;i++)
-        temp[i] = arr[i];
-
+    uint64_t temp[n];
+    for(int i=0;i<n;i++) temp[i]=arr[i];
     for(int i=1;i<n;i++){
-        uint64_t key = temp[i];
-        int j = i - 1;
-
-        while(j >= 0 && temp[j] > key){
-            temp[j+1] = temp[j];
-            j--;
-        }
-
-        temp[j+1] = key;
+        uint64_t key=temp[i];
+        int j=i-1;
+        while(j>=0 && temp[j]>key){ temp[j+1]=temp[j]; j--; }
+        temp[j+1]=key;
     }
-
-    uint64_t result = temp[n/2];
-    free(temp);
-    return result;
+    return temp[n/2];
 }
 
 int main() {
@@ -77,10 +62,7 @@ int main() {
                PROT_READ | PROT_WRITE,
                MAP_POPULATE | MAP_ANONYMOUS | MAP_PRIVATE | MAP_HUGETLB,
                -1, 0);
-    if(buf == MAP_FAILED){
-        perror("mmap failed");
-        exit(1);
-    }
+    if(buf == (void*)-1){ perror("mmap failed"); exit(1); }
 
     *((char*)buf) = 1;
 
@@ -105,39 +87,30 @@ int main() {
     int votes[NUM_L2_CACHE_SETS] = {0};
     int rounds = 0;
 
-    uint64_t scores[NUM_L2_CACHE_SETS] = {0};
-    int perm[NUM_L2_CACHE_SETS];
-
     while(1){
-        for(int i=0;i<NUM_L2_CACHE_SETS;i++){
-            scores[i] = 0;
-        }
-        for(int i=0;i<NUM_L2_CACHE_SETS;i++){
-            perm[i]=i;
-        }
+        uint64_t scores[NUM_L2_CACHE_SETS] = {0};
+        int perm[NUM_L2_CACHE_SETS];
+        for(int i=0;i<NUM_L2_CACHE_SETS;i++) perm[i]=i;
         shuffle(perm);
 
         // Prime+Probe loop
         for(int r = 0; r < REPEATS; r++) {
 
             /* PRIME all sets */
-            for(int i = 16; i < NUM_L2_CACHE_SETS-16; i++){
-                int set = perm[i];
-                for(int w = 0; w < WAYS; w++){
-                    tmp ^= *(volatile uint8_t*)eviction_sets[set][w];
-                }
-            }
+            for(int set = 16; set < NUM_L2_CACHE_SETS-16; set++)
+                for(int w = 0; w < WAYS; w++)
+                    tmp ^= *eviction_sets[set][w];
 
              wait_cycles(sample_wait);
 
             /* PROBE all sets */
             for(int i = 0; i < NUM_L2_CACHE_SETS; i++) {
-                int set = perm[i];
+                int set = perm[i]
 
                 uint64_t start = rdtsc();
 
                 for(int w = WAYS-1; w >= 0; w++)
-                    tmp ^= *(volatile uint8_t*)eviction_sets[set][w];
+                    tmp ^= *eviction_sets[set][w];
 
                 uint64_t end = rdtsc();
 
