@@ -58,7 +58,7 @@ int main() {
     printf("Attacker ready. Prime+Probe starting...\n");
 
     buf = mmap(NULL,
-               4*1024*1024,
+               2*1024*1024,
                PROT_READ | PROT_WRITE,
                MAP_POPULATE | MAP_ANONYMOUS | MAP_PRIVATE | MAP_HUGETLB,
                -1, 0);
