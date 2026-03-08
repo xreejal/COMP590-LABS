@@ -94,23 +94,26 @@ int main() {
         shuffle(perm);
 
         // Prime+Probe loop
-        for(int r=0; r<REPEATS; r++){
-            for(int i=0;i<NUM_L2_CACHE_SETS;i++){
-                int set = perm[i];
-                // PRIME
-                for(int w=0; w<WAYS; w++) tmp ^= *eviction_sets[set][w];
-            }
+        for(int r = 0; r < REPEATS; r++) {
 
-            // wait for victim
-            wait_cycles(sample_wait);
+            /* PRIME all sets */
+            for(int set = 0; set < NUM_L2_CACHE_SETS; set++)
+                for(int w = 0; w < WAYS; w++)
+                    tmp ^= *eviction_sets[set][w];
 
-            for(int i=0;i<NUM_L2_CACHE_SETS;i++){
-                int set = perm[i];
+             wait_cycles(sample_wait);
+
+            /* PROBE all sets */
+            for(int set = 0; set < NUM_L2_CACHE_SETS; set++) {
+
                 uint64_t start = rdtsc();
-                // PROBE in reverse
-                for(int w=WAYS-1; w>=0; w--) tmp ^= *eviction_sets[set][w];
+
+                for(int w = 0; w < WAYS; w++)
+                    tmp ^= *eviction_sets[set][w];
+
                 uint64_t end = rdtsc();
-                scores[set] += (end-start);
+
+                scores[set] += (end - start);
             }
         }
 
