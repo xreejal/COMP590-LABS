@@ -11,7 +11,7 @@
 #define LINE_SIZE 64
 #define STRIDE (NUM_L2_CACHE_SETS * LINE_SIZE)
 
-#define REPEATS 1000
+#define REPEATS 3000
 
 volatile uint8_t *buf;
 volatile uint8_t *eviction_sets[NUM_L2_CACHE_SETS][WAYS];
@@ -91,7 +91,7 @@ int main() {
         }
 
         /* let victim run */
-        wait_cycles(1000);
+        wait_cycles(4000);
 
         /* PROBE all sets */
         for(int i = 0; i < NUM_L2_CACHE_SETS; i++) {
@@ -123,8 +123,6 @@ int main() {
         }
 
         printf("Guessed flag: %d (latency=%lu)\n", best_set, best_latency);
-
-        wait_cycles(1000);
     }
 
     return 0;
