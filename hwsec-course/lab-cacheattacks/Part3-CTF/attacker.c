@@ -148,16 +148,24 @@ int main() {
         votes[best_set]++;
         rounds++;
 
-        // print likely flag every 5 rounds
+        if(rounds % 50 == 0){
+        for(int i=0;i<NUM_L2_CACHE_SETS;i++)
+            votes[i] /= 2;
+        }   
+
         if(rounds % 5 == 0) {
-            int likely_flag = 0, max_votes = 0;
-            for(int i = 0; i < NUM_L2_CACHE_SETS; i++) {
-                if(votes[i] > max_votes) {
-                    max_votes = votes[i];
-                    likely_flag = i;
-                }
+
+            int likely_flag = 0;
+            int max_votes = 0;
+
+        for(int i=0;i<NUM_L2_CACHE_SETS;i++){
+            if(votes[i] > max_votes){
+                max_votes = votes[i];
+                likely_flag = i;
             }
-            printf("Likely flag: %d (votes=%d)\n", likely_flag, max_votes);
+        }
+
+    printf("Likely flag: %d (votes=%d)\n", likely_flag, max_votes);
         }
     }
 
