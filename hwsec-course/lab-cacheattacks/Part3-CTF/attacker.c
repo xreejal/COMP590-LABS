@@ -43,15 +43,30 @@ void shuffle(int *arr) {
 
 // Compute median
 uint64_t median(uint64_t *arr, int n) {
-    uint64_t temp[n];
-    for(int i=0;i<n;i++) temp[i]=arr[i];
-    for(int i=1;i<n;i++){
-        uint64_t key=temp[i];
-        int j=i-1;
-        while(j>=0 && temp[j]>key){ temp[j+1]=temp[j]; j--; }
-        temp[j+1]=key;
+    uint64_t *temp = malloc(sizeof(uint64_t) * n);
+    if(!temp){
+        perror("malloc");
+        exit(1);
     }
-    return temp[n/2];
+
+    for(int i=0;i<n;i++)
+        temp[i] = arr[i];
+
+    for(int i=1;i<n;i++){
+        uint64_t key = temp[i];
+        int j = i - 1;
+
+        while(j >= 0 && temp[j] > key){
+            temp[j+1] = temp[j];
+            j--;
+        }
+
+        temp[j+1] = key;
+    }
+
+    uint64_t result = temp[n/2];
+    free(temp);
+    return result;
 }
 
 int main() {
