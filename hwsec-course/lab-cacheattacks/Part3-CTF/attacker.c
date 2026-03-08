@@ -97,9 +97,11 @@ int main() {
         for(int r = 0; r < REPEATS; r++) {
 
             /* PRIME all sets */
-            for(int i = 16; i < NUM_L2_CACHE_SETS-16; i++)
-                for(int w = 0; w < WAYS; w++)
+            for(int i = 16; i < NUM_L2_CACHE_SETS-16; i++){
+                int set = perm[i];
+                for(int w = 0; w < WAYS; w++){
                     tmp ^= *eviction_sets[set][w];
+                }
 
              wait_cycles(sample_wait);
 
