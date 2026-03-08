@@ -11,7 +11,7 @@
 #define LINE_SIZE 64
 #define STRIDE (NUM_L2_CACHE_SETS * LINE_SIZE)
 
-#define REPEATS 2000
+#define REPEATS 1000
 #define THRESHOLD 150
 
 volatile uint8_t *buf;
@@ -71,31 +71,31 @@ int main() {
 
     while(1) {
 
-        for(int set = 0; set < NUM_L2_CACHE_SETS; set++) {
+        for(int i = 0; i < NUM_L2_CACHE_SETS; i++)
+            scores[i] = 0;
 
-            uint64_t score = 0;
+        for(int r = 0; r < REPEATS; r++) {
 
-            for(int r = 0; r < REPEATS; r++) {
-
-            /* PRIME */
-            for(int w = 0; w < WAYS; w++)
-                tmp ^= *eviction_sets[set][w];
+        /* PRIME all sets */
+            for(int set = 0; set < NUM_L2_CACHE_SETS; set++)
+                for(int w = 0; w < WAYS; w++)
+                    tmp ^= *eviction_sets[set][w];
 
             wait_cycles(20000);
 
-            /* PROBE */
-            uint64_t start = rdtsc();
+            /* PROBE all sets */
+            for(int set = 0; set < NUM_L2_CACHE_SETS; set++) {
 
-            for(int w = WAYS-1; w >= 0; w--)
-                tmp ^= *eviction_sets[set][w];
+                uint64_t start = rdtsc();
 
-            uint64_t latency = rdtsc() - start;
+                for(int w = WAYS-1; w >= 0; w--)
+                    tmp ^= *eviction_sets[set][w];
 
-            score += latency;
+                uint64_t latency = rdtsc() - start;
+
+                scores[set] += latency;
+            }
         }
-
-        scores[set] = score;
-    }
 
         int best_set = 0;
         uint64_t best_latency = 0;
