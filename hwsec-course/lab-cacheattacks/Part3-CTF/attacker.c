@@ -11,7 +11,7 @@
 #define LINE_SIZE 64
 #define STRIDE (NUM_L2_CACHE_SETS * LINE_SIZE)
 
-#define REPEATS 1000
+#define REPEATS 2000
 
 volatile uint8_t *buf;
 volatile uint8_t *eviction_sets[NUM_L2_CACHE_SETS][WAYS];
