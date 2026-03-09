@@ -24,9 +24,15 @@ static inline uint64_t rdtsc() {
     return ((uint64_t)hi << 32) | lo;
 }
 
+static inline uint64_t rdtscp() {
+    uint32_t lo, hi;
+    asm volatile("rdtscp" : "=a"(lo), "=d"(hi) :: "rcx");
+    return ((uint64_t)hi << 32) | lo;
+}
+
 static inline void wait_cycles(uint64_t cycles) {
-    uint64_t start = rdtsc();
-    while (rdtsc() - start < cycles);
+    uint64_t start = rdtscp();
+    while (rdtscp() - start < cycles);
 }
 
 void shuffle(int *arr) {
@@ -65,7 +71,7 @@ int main() {
 
     volatile uint8_t tmp = 0;
 
-    srand(rdtsc());
+    srand(rdtscp());
 
     while(1) {
 
@@ -93,13 +99,13 @@ int main() {
                 wait_cycles(2000);
 
                 /* PROBE this set */
-                uint64_t start = rdtsc();
+                uint64_t start = rdtscp();
 
                 for(int w = 0; w < WAYS; w++) {
                     tmp ^= *eviction_sets[set][w];
                 }
 
-                uint64_t end = rdtsc();
+                uint64_t end = rdtscp();
 
                 scores[set] += (end - start);
             }
