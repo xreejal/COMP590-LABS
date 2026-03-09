@@ -20,6 +20,7 @@ void *buffer;
 struct node *l2_sets[9];
 
 // Build a linked list for one set
+// Best working version
 void create_set(int set_idx) {
     char *base = (char*)buffer;
     struct node *prev = NULL;
