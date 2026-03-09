@@ -96,7 +96,7 @@ int main() {
                     tmp ^= *eviction_sets[set][w];
                 }
 
-                wait_cycles(2000);
+                wait_cycles(5000);
 
                 /* PROBE this set */
                 uint64_t start = rdtscp();
