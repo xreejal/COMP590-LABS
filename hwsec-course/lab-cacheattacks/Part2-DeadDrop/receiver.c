@@ -50,15 +50,23 @@ void calibrate() {
     for(int i=0;i<=8;i++){
         uint64_t sum=0;
         for(int j=0;j<500;j++){
-            traverse_set(i);
+            traverse_set(i); // warm-up
             sum += traverse_set(i);
         }
-        thresholds[i] = (sum/500)*2;
+        thresholds[i] = (sum/500) * 13 / 10; // ~1.3x average, less aggressive
     }
 }
 
-// Check if set 8 is high (start of byte)
-int signal_high() { return traverse_set(8) > thresholds[8]; }
+// Stable signal check: multiple readings
+int signal_high() {
+    int high_count = 0;
+    const int CHECKS = 5;
+    for(int i=0;i<CHECKS;i++){
+        if(traverse_set(8) > thresholds[8]) high_count++;
+        for(volatile int w=0; w<100; w++);
+    }
+    return high_count >= 3; // majority
+}
 
 int main() {
     srand(time(NULL));
@@ -76,34 +84,31 @@ int main() {
     printf("Listening...\n");
 
     while(1){
-        // Wait for start signal (set 8 high)
-        while(!signal_high()) { for(volatile int w=0;w<1000;w++); }
+        // Wait for consistent start signal
+        while(!signal_high()){ for(volatile int w=0; w<1000; w++); }
 
         // Byte detected, start sampling
         int bits[8]={0};
-        int sample_count=0;
-        const int MAX_SAMPLES=120;
+        const int MAX_SAMPLES = 100;
 
-        for(sample_count=0; sample_count<MAX_SAMPLES; sample_count++){
-            if(!signal_high()) break; // Stop if signal dropped
+        for(int sample=0; sample<MAX_SAMPLES; sample++){
+            if(!signal_high()) continue; // skip weak/noisy periods
 
-            // Sample each bit set
             for(int b=0;b<8;b++){
                 if(traverse_set(b) > thresholds[b]) bits[b]++;
             }
-
-            for(volatile int wait=0; wait<3000; wait++); // small delay
+            for(volatile int wait=0; wait<3000; wait++);
         }
 
         // Decode byte using majority
         int value=0;
         for(int b=0;b<8;b++){
-            if(bits[b] > sample_count/2) value |= 1<<b;
+            if(bits[b] > MAX_SAMPLES/2) value |= 1<<b;
         }
 
         printf("%d\n", value);
 
-        // Wait for signal to go low consistently before next byte
+        // Wait for signal to drop consistently
         int lows=0;
         while(lows<8){
             if(!signal_high()) lows++;
