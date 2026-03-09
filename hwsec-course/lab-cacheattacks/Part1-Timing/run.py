@@ -8,10 +8,10 @@ from tqdm import tqdm
 
 # Run your code:
 # Make sure that your code is using print_results_for_python
-#executable_filename = ['make', 'run']
+executable_filename = ['make', 'run']
 
 # Run reference code:
-executable_filename = ['make', 'run-reference']
+#executable_filename = ['make', 'run-reference']
 
 num_runs = 100
 
@@ -36,7 +36,7 @@ for run_id in tqdm(fancy_num_runs):
         dict_of_lists[store_level] = list(map(int, temp)) 
         store_level+=1
 
-    #print(dict_of_lists)
+    print(dict_of_lists)
     filename = graph_repo+"/run"+str(run_id)+".json"
     jsonFile = open(filename, "w")
     jsonFile.write(json.dumps(dict_of_lists))
