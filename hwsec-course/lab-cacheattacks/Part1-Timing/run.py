@@ -1,44 +1,19 @@
 import json
 import os
-import matplotlib.pyplot as plt
 import subprocess
-import csv
-from tqdm import tqdm
 
+NUM_RUNS = 100
+EXE = ["./main"]
+DATA_DIR = "data"
 
-# Run your code:
-# Make sure that your code is using print_results_for_python
-executable_filename = ['make', 'run']
+os.makedirs(DATA_DIR, exist_ok=True)
 
-# Run reference code:
-#executable_filename = ['make', 'run-reference']
+for run_id in range(NUM_RUNS):
+    p = subprocess.run(EXE, check=True, capture_output=True, text=True)
+    raw = p.stdout.strip()
 
-num_runs = 100
+    payload = json.loads(raw)
+    with open(os.path.join(DATA_DIR, f"run{run_id}.json"), "w", encoding="utf-8") as fp:
+        json.dump(payload, fp)
 
-graph_repo = "data"
-os.makedirs(graph_repo, exist_ok=True)
-
-fancy_num_runs = range(0, num_runs, 1)
-for run_id in tqdm(fancy_num_runs):
-    p = subprocess.run(executable_filename,
-            stdout=subprocess.PIPE, universal_newlines=True)
-
-    reader = csv.reader(p.stdout.splitlines())
-
-    dict_of_lists = dict()
-
-    for store_lev in range(1, 4+1, 1):
-        dict_of_lists[store_lev] = []
-
-    store_level = 1
-    for row in reader:
-        temp = row[0].split(' ')[:-1]
-        dict_of_lists[store_level] = list(map(int, temp)) 
-        store_level+=1
-
-    print(dict_of_lists)
-    filename = graph_repo+"/run"+str(run_id)+".json"
-    jsonFile = open(filename, "w")
-    jsonFile.write(json.dumps(dict_of_lists))
-    jsonFile.close()
-
+print(f"Collected {NUM_RUNS} run(s) in {DATA_DIR}/")

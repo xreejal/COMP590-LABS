@@ -1,106 +1,56 @@
 #include "util.h"
 
-/* Measure the time it takes to access a block with virtual address addr. */
+#include <time.h>
+
+#if defined(__i386__) || defined(__x86_64__) || defined(_M_IX86) || defined(_M_X64)
+static inline uint64_t read_tsc(void)
+{
+    unsigned int aux = 0;
+    unsigned int lo;
+    unsigned int hi;
+
+    asm volatile("rdtscp" : "=a"(lo), "=d"(hi), "=c"(aux) : : "memory");
+    return ((uint64_t)hi << 32) | lo;
+}
+
+static inline void serialise_cpu(void)
+{
+    asm volatile("lfence\n\t" : : : "memory");
+}
+#else
+static inline uint64_t read_tsc(void)
+{
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (uint64_t)ts.tv_sec * 1000000000ull + (uint64_t)ts.tv_nsec;
+}
+
+static inline void serialise_cpu(void)
+{
+    (void)0;
+}
+#endif
+
 CYCLES measure_one_block_access_time(ADDR_PTR addr)
 {
-    CYCLES cycles;
+    serialise_cpu();
+    uint64_t start = read_tsc();
 
-    asm volatile("mov %1, %%r8\n\t"
-    "mfence\n\t"
-    "lfence\n\t"
-    "rdtscp\n\t"
-    "mov %%eax, %%edi\n\t"
-    "mfence\n\t"
-    "mov (%%r8), %%r8\n\t"
-    "mfence\n\t"
-    "lfence\n\t"
-    "rdtscp\n\t"
-    "mfence\n\t"
-    "lfence\n\t"
-    "sub %%edi, %%eax\n\t"
-    : "=a"(cycles) /*output*/
-    : "r"(addr)
-    : "r8", "edi"); 
+    uint8_t value = *(volatile uint8_t *)addr;
 
-    return cycles;
+    serialise_cpu();
+    uint64_t end = read_tsc();
+
+    (void)value;
+    return (CYCLES)(end - start);
 }
 
-/*
- * CLFlushes the given address.
- * 
- * Note: clflush is provided to help you debug and should not be used in your
- * final submission
- */
 void clflush(ADDR_PTR addr)
 {
-    asm volatile ("clflush (%0)"::"r"(addr));
-}
-
-/*
- * Converts a string to its binary representation.
- */
-char *string_to_binary(char *s)
-{
-  if (s == NULL)
-    return 0; /* no input string */
-
-  size_t len = strlen(s);
-
-  // Each char is one byte (8 bits) and + 1 at the end for null terminator
-  char *binary = malloc(len * 8 + 1);
-  binary[len] = '\0';
-
-  for (size_t i = 0; i < len; ++i)
-  {
-    char ch = s[i];
-    for (int j = 7; j >= 0; --j)
-    {
-      if (ch & (1 << j))
-      {
-        strcat(binary, "1");
-      }
-      else
-      {
-        strcat(binary, "0");
-      }
-    }
-  }
-
-  return binary;
-}
-
-/*
- * Converts a binary string to its ASCII representation.
- */
-char *binary_to_string(char *data)
-{
-  // Each char is 8 bits
-  size_t msg_len = strlen(data) / 8;
-
-  // Add one for null terminator at the end
-  char *msg = malloc(msg_len + 1);
-  msg[msg_len] = '\0';
-
-  for (int i = 0; i < msg_len; i++)
-  {
-    char tmp[8];
-    int k = 0;
-
-    for (int j = i * 8; j < ((i + 1) * 8); j++)
-    {
-      tmp[k++] = data[j];
-    }
-
-    msg[i] = strtol(tmp, 0, 2);
-  }
-
-  return msg;
-}
-
-/*
- * Converts a string to integer
- */
-int string_to_int(char* s) 
-{
-  return atoi(s);
+#if defined(__i386__) || defined(__x86_64__) || defined(_M_IX86) || defined(_M_X64)
+    asm volatile("clflush (%0)\n\t" : : "r"(addr) : "memory");
+    asm volatile("mfence\n\t" : : : "memory");
+#else
+    (void)addr;
+#endif
 }
