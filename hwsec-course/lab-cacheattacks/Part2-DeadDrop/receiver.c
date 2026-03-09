@@ -52,12 +52,18 @@ void calibrate() {
             sum += traverse_set(i);
         }
 
-        thresholds[i] = (sum/500) * 13 / 10;
+        thresholds[i] = (sum/500) * 2;
     }
 }
 
 int signal_high() {
-    return traverse_set(8) > thresholds[8];
+    int consecutive = 0;
+    while(1) {
+        if(traverse_set(8) > thresholds[8]) consecutive++;
+        else consecutive = 0;
+        if(consecutive >= 15) return 1; // 15 consecutive readings above threshold
+        for(volatile int w=0; w<100; w++);
+    }
 }
 
 void wait_for_start() {
