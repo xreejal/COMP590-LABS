@@ -24,12 +24,13 @@
 #define L2_ASSOCIATIVITY 4
 #define EV_SET_SIZE (L2_ASSOCIATIVITY + 2)
 #define SET_STRIDE (CACHE_LINE_BYTES * L2_NUM_SETS)
+
 #define MAX_MESSAGES 256
-#define SAMPLES_PER_ROUND L2_NUM_SETS
-#define PRIME_DELAY_ITERS 12000
-#define COOLDOWN_ITERS 200000000L
-#define DECODE_ROUNDS 4
+#define PRIME_DELAY_ITERS 14000
+#define COOLDOWN_ITERS 120000000L
+#define DECODE_ROUNDS 6
 #define CONFIRMATION_COUNT 4
+#define CONFIRMATION_MARGIN 1
 #define TOP_SHOW_COUNT 5
 #define DEFAULT_THRESHOLD 150
 
@@ -67,6 +68,13 @@ static void prime_set(void *region, int set_index, volatile char *probe)
     }
 }
 
+static void prime_candidate_order(void *region, const int *order, volatile char *probe)
+{
+    for (int i = 0; i < MAX_MESSAGES; i++) {
+        prime_set(region, order[i], probe);
+    }
+}
+
 static uint64_t measure_set_latency(void *region, int set_index)
 {
     uint64_t total = 0;
@@ -89,6 +97,14 @@ static void shuffle_order(int *order, int n)
         order[i] = order[j];
         order[j] = tmp;
     }
+}
+
+static void build_candidate_order(int *order, int n)
+{
+    for (int i = 0; i < n; i++) {
+        order[i] = i;
+    }
+    shuffle_order(order, n);
 }
 
 static int read_threshold_override(void)
@@ -190,6 +206,47 @@ static void print_top_hits(const int *hit_count)
     printf("\n");
 }
 
+static void pick_best_and_runner_up(const int *hits, const int *avg,
+                                   int *best_out, int *best_hits_out,
+                                   int *runner_up_out, int *runner_up_hits_out)
+{
+    int best = -1;
+    int runner_up = -1;
+    int best_hits = -1;
+    int runner_up_hits = -1;
+    int best_avg = 0;
+    int runner_up_avg = 0;
+
+    for (int v = 0; v < MAX_MESSAGES; v++) {
+        int h = hits[v];
+        int a = avg[v];
+
+        if (h > best_hits || (h == best_hits && a > best_avg)) {
+            runner_up = best;
+            runner_up_hits = best_hits;
+            runner_up_avg = best_avg;
+
+            best = v;
+            best_hits = h;
+            best_avg = a;
+            continue;
+        }
+
+        if (h > runner_up_hits || (h == runner_up_hits && a > runner_up_avg)) {
+            runner_up = v;
+            runner_up_hits = h;
+            runner_up_avg = a;
+        }
+    }
+
+    *best_out = best;
+    *best_hits_out = best_hits;
+    *runner_up_out = runner_up;
+    *runner_up_hits_out = runner_up_hits;
+
+    (void)runner_up_avg;
+}
+
 static void delay_busy(long iters)
 {
     for (volatile long i = 0; i < iters; i++) {
@@ -209,7 +266,7 @@ int main(int argc, char **argv)
     int latency_sum[MAX_MESSAGES] = {0};
     int rounds_seen = 0;
 
-    int order[L2_NUM_SETS];
+    int order[MAX_MESSAGES];
     uint64_t latencies[MAX_MESSAGES];
     int use_threshold = 0;
 
@@ -243,15 +300,8 @@ int main(int argc, char **argv)
     while (1) {
         rounds_seen++;
 
-        for (int i = 0; i < L2_NUM_SETS; i++) {
-            order[i] = i;
-        }
-        shuffle_order(order, L2_NUM_SETS);
-
-        for (int idx = 0; idx < L2_NUM_SETS; idx++) {
-            int set_index = order[idx];
-            prime_set(region, set_index, &probe);
-        }
+        build_candidate_order(order, MAX_MESSAGES);
+        prime_candidate_order(region, order, &probe);
 
         delay_busy(PRIME_DELAY_ITERS);
 
@@ -264,36 +314,56 @@ int main(int argc, char **argv)
             }
         }
 
-        if (!use_threshold) {
-            int best_set = 0;
-            uint64_t best_lat = latencies[0];
-            for (int i = 1; i < MAX_MESSAGES; i++) {
-                if (latencies[i] > best_lat) {
-                    best_lat = latencies[i];
-                    best_set = i;
-                }
+        int best_set = 0;
+        uint64_t best_lat = latencies[0];
+        for (int i = 1; i < MAX_MESSAGES; i++) {
+            if (latencies[i] > best_lat) {
+                best_lat = latencies[i];
+                best_set = i;
             }
+        }
+
+        int round_hits = 0;
+        for (int set_index = 0; set_index < MAX_MESSAGES; set_index++) {
+            if ((int)latencies[set_index] > threshold) {
+                round_hits++;
+            }
+        }
+
+        if (use_threshold) {
+            if (round_hits == 0) {
+                vote[best_set]++;
+                latency_sum[best_set] += (int)best_lat;
+            }
+        } else {
             vote[best_set]++;
             latency_sum[best_set] += (int)best_lat;
         }
 
         printf("Round %d complete\n", rounds_seen);
 
+        int avg_latency[MAX_MESSAGES];
+        for (int v = 0; v < MAX_MESSAGES; v++) {
+            avg_latency[v] = vote[v] > 0 ? (latency_sum[v] / vote[v]) : 0;
+        }
+
         int best_cnt = 0;
         int best_val = -1;
+        int second_val = -1;
+        int second_cnt = 0;
         int best_avg = 0;
-        for (int v = 0; v < MAX_MESSAGES; v++) {
-            int avg = vote[v] > 0 ? (latency_sum[v] / vote[v]) : 0;
-            if (vote[v] > best_cnt || (vote[v] == best_cnt && avg > best_avg)) {
-                best_cnt = vote[v];
-                best_val = v;
-                best_avg = avg;
-            }
+
+        pick_best_and_runner_up(vote, avg_latency, &best_val, &best_cnt,
+                                &second_val, &second_cnt);
+        if (best_val >= 0) {
+            best_avg = avg_latency[best_val];
         }
 
         print_top_hits(vote);
 
-        if (rounds_seen >= DECODE_ROUNDS && best_cnt >= CONFIRMATION_COUNT) {
+        if (rounds_seen >= DECODE_ROUNDS &&
+            best_cnt >= CONFIRMATION_COUNT &&
+            (best_cnt - second_cnt) >= CONFIRMATION_MARGIN) {
             printf("\n>>> RECEIVED: %d (hits=%d/%d, avg_lat=%d) <<<\n\n",
                    best_val, best_cnt, rounds_seen, best_avg);
             fflush(stdout);

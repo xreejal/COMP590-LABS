@@ -5,7 +5,6 @@
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <time.h>
 
 #ifndef MAP_POPULATE
 #define MAP_POPULATE 0
@@ -21,6 +20,7 @@
 
 #define REGION_BYTES (2ULL * 1024ULL * 1024ULL)
 #define CACHE_LINE_BYTES 64ULL
+#define MAX_MESSAGES 256
 #define L2_NUM_SETS 1024
 #define L2_ASSOCIATIVITY 4
 #define EV_SET_SIZE (L2_ASSOCIATIVITY + 2)
@@ -71,6 +71,7 @@ static int parse_input_value(const char *line, int *out)
     while (isspace((unsigned char)*tail)) {
         tail++;
     }
+
     if (*tail != '\0' || parsed < 0 || parsed > 255) {
         return 0;
     }
@@ -82,10 +83,22 @@ static int parse_input_value(const char *line, int *out)
 static void hammer_set(void *region, int set_index, volatile char *sink)
 {
     const uint64_t base = (uint64_t)region;
+
     while (1) {
-        for (int way = 0; way < EV_SET_SIZE; way++) {
-            uint64_t offset = (uint64_t)set_index * CACHE_LINE_BYTES + (uint64_t)way * SET_STRIDE;
-            *sink = ((volatile char *)(base + offset))[0];
+        for (int pass = 0; pass < 2; pass++) {
+            if (pass == 0) {
+                for (int way = 0; way < EV_SET_SIZE; way++) {
+                    uint64_t offset = (uint64_t)set_index * CACHE_LINE_BYTES
+                                      + (uint64_t)way * SET_STRIDE;
+                    *sink = ((volatile char *)(base + offset))[0];
+                }
+            } else {
+                for (int way = EV_SET_SIZE - 1; way >= 0; way--) {
+                    uint64_t offset = (uint64_t)set_index * CACHE_LINE_BYTES
+                                      + (uint64_t)way * SET_STRIDE;
+                    *sink = ((volatile char *)(base + offset))[0];
+                }
+            }
         }
     }
 }
