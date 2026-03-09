@@ -1,57 +1,118 @@
-#include"util.h"
+#include "util.h"
 #include <sys/mman.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include <stdint.h>
+#include <time.h>
 
 #define BUFF_SIZE (1<<21)
+#define L2_WAYS 16
+#define STRIDE (1<<16)
 
-int main(int argc, char **argv)
-{
-    void *buf = mmap(NULL, BUFF_SIZE, PROT_READ | PROT_WRITE,
-                     MAP_POPULATE | MAP_ANONYMOUS | MAP_PRIVATE | MAP_HUGETLB, -1, 0);
+#define SET_SPACING 32
+#define BASE_SET 64
 
-    if (buf == (void*) -1) {
-        perror("mmap() error");
-        exit(EXIT_FAILURE);
+struct node {
+    struct node *next;
+    char pad[64 - sizeof(struct node*)];
+};
+
+void *buf;
+struct node *sets[9];
+
+void shuffle(struct node **array, int n) {
+    for (int i=n-1;i>0;i--) {
+        int j = rand()%(i+1);
+        struct node *tmp = array[i];
+        array[i] = array[j];
+        array[j] = tmp;
+    }
+}
+
+void build_set(int idx) {
+    char *base = (char*)buf;
+    struct node *nodes[L2_WAYS];
+
+    int phys = BASE_SET + idx * SET_SPACING;
+
+    for (int i=0;i<L2_WAYS;i++) {
+        nodes[i] = (struct node*)(base + phys*64 + i*STRIDE);
     }
 
-    *((char *)buf) = 1;
+    shuffle(nodes, L2_WAYS);
 
-    // Warmup
-    printf("Warming up...\n");
-    volatile char tmp;
-    for (int w = 0; w < 5; w++) {
-        for (uint64_t i = 0; i < BUFF_SIZE; i += 64) {
-            tmp = *((char *)buf + i);
-        }
+    for (int i=0;i<L2_WAYS-1;i++)
+        nodes[i]->next = nodes[i+1];
+
+    nodes[L2_WAYS-1]->next = NULL;
+
+    sets[idx] = nodes[0];
+}
+
+void evict_set(int idx) {
+    struct node *p = sets[idx];
+
+    while (p)
+        p = p->next;
+
+    // second pass for stronger eviction
+    p = sets[idx];
+    while (p)
+        p = p->next;
+}
+
+int main() {
+
+    srand(time(NULL));
+
+    buf = mmap(NULL, BUFF_SIZE, PROT_READ|PROT_WRITE,
+        MAP_POPULATE|MAP_ANONYMOUS|MAP_PRIVATE|MAP_HUGETLB, -1, 0);
+
+    if (buf == (void*)-1) {
+        perror("mmap");
+        exit(1);
     }
+
+    *((char*)buf) = 1;
+
+    // Build sets for bits + valid
+    for (int i=0;i<=8;i++)
+        build_set(i);
 
     printf("Sender ready. Please type a message.\n");
 
     while (1) {
+
         char text_buf[128];
-        fgets(text_buf, sizeof(text_buf), stdin);
+
+        if (!fgets(text_buf,sizeof(text_buf),stdin))
+            break;
 
         int value = atoi(text_buf);
+
         if (value < 0 || value > 255) {
-            printf("Please enter a value between 0 and 255\n");
+            printf("Enter value 0-255\n");
             continue;
         }
 
-        int target_set = value * 4;
-        printf("Sending %d (set %d)...\n", value, target_set);
-        printf("Press Ctrl+C when receiver shows the correct value.\n");
+        printf("Sending %d\n", value);
 
-        // Fill the target set CONTINUOUSLY until user stops
-        // This ensures receiver has time to scan all 256 sets multiple times
-        while (1) {
-            for (int variant = 0; variant < 32; variant++) {
-                uint64_t offset = (variant << 16) | (target_set << 6);
-                tmp = *((char *)buf + offset);
+        long duration = 2000000;
+
+        for (long k=0;k<duration;k++) {
+
+            // VALID signal
+            evict_set(8);
+
+            // send bits
+            for (int i=0;i<8;i++) {
+                if ((value >> i) & 1)
+                    evict_set(i);
             }
         }
 
-        printf("Done sending %d\n", value);
+        printf("Sent.\n");
     }
 
-    munmap(buf, BUFF_SIZE);
     return 0;
 }
