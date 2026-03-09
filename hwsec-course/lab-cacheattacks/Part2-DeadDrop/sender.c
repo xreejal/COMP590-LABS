@@ -1,60 +1,131 @@
-
-#include"util.h"
-// mman library to be used for hugepage allocations (e.g. mmap or posix_memalign only)
+#include "util.h"
 #include <sys/mman.h>
 
-// TODO: define your own buffer size
-#define BUFF_SIZE (1<<21)
-//#define BUFF_SIZE (2 * 1024 * 1024)
+#include <ctype.h>
+#include <errno.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <time.h>
+
+#ifndef MAP_POPULATE
+#define MAP_POPULATE 0
+#endif
+
+#ifndef MAP_ANONYMOUS
+#define MAP_ANONYMOUS MAP_ANON
+#endif
+
+#ifndef MAP_HUGETLB
+#define MAP_HUGETLB 0
+#endif
+
+#define REGION_BYTES (2ULL * 1024ULL * 1024ULL)
+#define CACHE_LINE_BYTES 64ULL
+#define L2_NUM_SETS 1024
+#define L2_ASSOCIATIVITY 4
+#define EV_SET_SIZE (L2_ASSOCIATIVITY + 2)
+#define SET_STRIDE (CACHE_LINE_BYTES * L2_NUM_SETS)
+#define INPUT_SIZE 128
+
+static void *allocate_channel_region(void)
+{
+    void *region = mmap(NULL, REGION_BYTES, PROT_READ | PROT_WRITE,
+                        MAP_POPULATE | MAP_ANONYMOUS | MAP_PRIVATE | MAP_HUGETLB,
+                        -1, 0);
+
+    if (region == (void *)-1) {
+        perror("mmap() error");
+        exit(EXIT_FAILURE);
+    }
+
+    return region;
+}
+
+static void warm_up_channel(void *region, volatile char *sink)
+{
+    ((volatile char *)region)[0] = 1;
+
+    for (unsigned long i = 0; i < REGION_BYTES; i += CACHE_LINE_BYTES) {
+        *sink = ((volatile char *)region)[i];
+    }
+}
+
+static int parse_input_value(const char *line, int *out)
+{
+    while (line && isspace((unsigned char)*line)) {
+        line++;
+    }
+
+    if (!line || *line == '\0') {
+        return 0;
+    }
+
+    errno = 0;
+    char *tail = NULL;
+    long parsed = strtol(line, &tail, 10);
+
+    if (tail == line || errno != 0) {
+        return 0;
+    }
+
+    while (isspace((unsigned char)*tail)) {
+        tail++;
+    }
+    if (*tail != '\0' || parsed < 0 || parsed > 255) {
+        return 0;
+    }
+
+    *out = (int)parsed;
+    return 1;
+}
+
+static void hammer_set(void *region, int set_index, volatile char *sink)
+{
+    const uint64_t base = (uint64_t)region;
+    while (1) {
+        for (int way = 0; way < EV_SET_SIZE; way++) {
+            uint64_t offset = (uint64_t)set_index * CACHE_LINE_BYTES + (uint64_t)way * SET_STRIDE;
+            *sink = ((volatile char *)(base + offset))[0];
+        }
+    }
+}
 
 int main(int argc, char **argv)
 {
-  // Allocate a buffer using huge page
-  // See the handout for details about hugepage management
-  void *buf= mmap(NULL, BUFF_SIZE, PROT_READ | PROT_WRITE, MAP_POPULATE | MAP_ANONYMOUS | MAP_PRIVATE | MAP_HUGETLB, -1, 0);
-  
-  if (buf == (void*) - 1) {
-     perror("mmap() error\n");
-     exit(EXIT_FAILURE);
-  }
-  // The first access to a page triggers overhead associated with
-  // page allocation, TLB insertion, etc.
-  // Thus, we use a dummy write here to trigger page allocation
-  // so later access will not suffer from such overhead.
-   *((char *)buf) = 1; // dummy write to trigger page allocation
+    (void)argc;
+    (void)argv;
+    setvbuf(stdout, NULL, _IOLBF, 0);
 
+    void *region = allocate_channel_region();
+    volatile char sink = 0;
 
-  // TODO:
-  // Put your covert channel setup code here
- for (int i = 0; i < 256; i++) {
-	_mm_clflush(buf + (i * 4096));
- }
-  printf("Please type a message.\n");
+    warm_up_channel(region, &sink);
 
-  bool sending = true;
-  while (sending) {
-      char text_buf[128];
-      fgets(text_buf, sizeof(text_buf), stdin);
+    printf("DeadDrop sender ready.\n");
+    printf("Type an integer [0,255]. Ctrl-D to stop.\n");
 
-      // TODO:
-      // Put your covert channel code here
-   for (int i = 0; text_buf[i] != '\0' && text_buf[i] != '\n'; i++) {
-    unsigned char c = (unsigned char)text_buf[i];
-    
-    volatile char *addr = (char *)buf + (c * 4096);
-    char dummy = *addr; 
+    while (1) {
+        char line[INPUT_SIZE];
 
-    for(volatile int sys = 0; sys < 1000000; sys++); 
+        if (!fgets(line, sizeof(line), stdin)) {
+            printf("No input. Exiting.\n");
+            break;
+        }
 
-    _mm_clflush((void*)addr);
-    
-    printf("Sent: %c (offset %d)\n", c, c * 4096);
-  }
+        int value = 0;
+        if (!parse_input_value(line, &value)) {
+            printf("Invalid input. Enter one integer between 0 and 255.\n");
+            continue;
+        }
 
-  }
+        int set_index = value;
+        printf("Sending value=%d mapped to set=%d.\n", value, set_index);
+        printf("Press Ctrl+C when receiver confirms.\n");
 
-  printf("Sender finished.\n");
-  return 0;
+        hammer_set(region, set_index, &sink);
+        printf("Done sending %d.\n", value);
+    }
+
+    munmap(region, REGION_BYTES);
+    return 0;
 }
-
-
