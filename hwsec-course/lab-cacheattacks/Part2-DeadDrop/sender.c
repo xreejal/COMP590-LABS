@@ -36,15 +36,15 @@ int main(int argc, char **argv)
             continue;
         }
 
-        int target_set = value * 4;
+        int target_set = (value * 4) % 1024;
         printf("Sending %d (set %d)...\n", value, target_set);
         printf("Press Ctrl+C when receiver shows the correct value.\n");
 
         // Fill the target set CONTINUOUSLY until user stops
         // This ensures receiver has time to scan all 256 sets multiple times
         while (1) {
-            for (int variant = 0; variant < 32; variant++) {
-                uint64_t offset = (variant << 16) | (target_set << 6);
+            for (int variant = 0; variant < 64; variant++) {
+                uint64_t offset = (variant * 65536) + (target_set * 64);
                 tmp = *((char *)buf + offset);
             }
         }
