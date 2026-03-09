@@ -101,7 +101,7 @@ int main() {
             }
 
             /* let victim run */
-            wait_cycles(8000);
+            wait_cycles(10000);
 
             /* PROBE */
             for(int i = 0; i < NUM_L2_CACHE_SETS; i++) {
@@ -120,7 +120,8 @@ int main() {
                 latency += end - start;
             }
 
-            scores[set] += latency;
+            if(latency > 200)
+                scores[set]++;
             }
         }
 
