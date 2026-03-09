@@ -61,7 +61,9 @@ int main() {
         exit(1);
     }
 
-    *((char*)buf) = 1;
+    for(size_t i = 0; i < 2*1024*1024; i += LINE_SIZE) {
+    buf[i] = 1;
+    }
 
     for(int set = 0; set < NUM_L2_CACHE_SETS; set++) {
         for(int w = 0; w < WAYS; w++) {
@@ -79,13 +81,12 @@ int main() {
 
         
         int perm[NUM_L2_CACHE_SETS];
-        for(int r = 0; r < REPEATS; r++) {
-            
-            for(int i = 0; i < NUM_L2_CACHE_SETS; i++){
+        for(int i = 0; i < NUM_L2_CACHE_SETS; i++){
                 perm[i] = i;
             }
 
-            shuffle(perm);
+        shuffle(perm);
+        for(int r = 0; r < REPEATS; r++) {
 
             for(int i = 0; i < NUM_L2_CACHE_SETS; i++) {
 
@@ -97,19 +98,20 @@ int main() {
                 }
             }
 
-            wait_cycles(8000);
+            wait_cycles(20000);
 
             /* PROBE all sets */
            for(int i = NUM_L2_CACHE_SETS-1; i >= 0; i--) {
             int set = perm[i];
 
+            asm volatile("lfence");
             uint64_t start = rdtscp();
 
             
             for(int w = WAYS - 1; w >= 0; w--){
                 tmp ^= *eviction_sets[set][w];
             }
-
+            asm volatile("lfence");
             uint64_t end = rdtscp();
 
             scores[set] += (end - start);
