@@ -48,6 +48,8 @@ int main() {
     /* works around 2/3 of time on victim-4. Randomize access, reverse probe, no usleep. High synchornization required for this version
     */
     printf("Attacker ready. Prime+Probe starting...\n");
+    /*test wait cycles for victim*/
+    wait_cycles(2000000);
 
     buf = mmap(NULL,
                2*1024*1024,
