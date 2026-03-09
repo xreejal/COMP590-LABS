@@ -47,6 +47,7 @@ void shuffle(int *arr) {
 int main() {
     /* works around 3/5 of time on victim-4. Randomize access, reverse double probe, no usleep. High synchornization required for this version
     */
+   /* REVERSE PROBING*/
     printf("Attacker ready. Prime+Probe starting...\n");
     /*test wait cycles for victim*/
     wait_cycles(2000000);
