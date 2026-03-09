@@ -1,54 +1,48 @@
-import os
+import glob
 import json
-import sys
+import os
+
 import matplotlib.pyplot as plt
 import numpy as np
-from tqdm import tqdm
-from datetime import datetime
 
-if sys.version_info < (3,0):
-    print("Run me with python3, not python2!")
-    sys.exit(1)
+NUM_RUNS = 100
+DATA_DIR = "data"
+OUT_DIR = "graphs"
 
-num_runs = 100
-dict_of_dict_of_lists = dict()
+def main():
+    os.makedirs(OUT_DIR, exist_ok=True)
 
-graph_repo="data"
-os.makedirs(graph_repo, exist_ok=True)
+    l1_all = []
+    l2_all = []
+    l3_all = []
+    dram_all = []
 
-fancy_num_runs = range(0, num_runs, 1)
-for run_id in tqdm(fancy_num_runs):
-    filename = graph_repo+"/run"+str(run_id)+".json"
-    with open(filename) as f:
-        dict_of_dict_of_lists[run_id] = json.load(f)
+    files = sorted(glob.glob(os.path.join(DATA_DIR, "run*.json")))
+    for path in files[:NUM_RUNS]:
+        with open(path, "r", encoding="utf-8") as fp:
+            payload = json.load(fp)
+            l1_all.extend(payload["l1"])
+            l2_all.extend(payload["l2"])
+            l3_all.extend(payload["l3"])
+            dram_all.extend(payload["dram"])
 
-l1_all  = []
-l2_all  = []
-l3_all  = []
-mem_all = []
+    plt.figure(figsize=(10, 6))
+    bins = np.arange(0, 400)
 
-for run_id in tqdm(fancy_num_runs):
-    l1_all  += dict_of_dict_of_lists[run_id]['1'] 
-    l2_all  += dict_of_dict_of_lists[run_id]['2'] 
-    l3_all  += dict_of_dict_of_lists[run_id]['3'] 
-    mem_all += dict_of_dict_of_lists[run_id]['4']
+    plt.hist(l1_all, bins=bins, alpha=0.5, label="L1")
+    plt.hist(l2_all, bins=bins, alpha=0.5, label="L2")
+    plt.hist(l3_all, bins=bins, alpha=0.5, label="L3")
+    plt.hist(dram_all, bins=bins, alpha=0.5, label="DRAM")
 
-#
-# MAX 300
-#
-fig_all = plt.figure(figsize=(11.25, 7.5))
-ax_all  = fig_all.add_subplot(1,1,1)
-ax_all.set_xlabel("Access Time")
-ax_all.set_ylabel("Number of Samples")
+    plt.title("Cache Access Latency Distribution")
+    plt.xlabel("Cycles")
+    plt.ylabel("Samples")
+    plt.legend()
 
-ax_all.hist(l1_all,  label="L1",   bins=np.arange(0, 300 ), alpha=0.5) 
-ax_all.hist(l2_all,  label="L2",   bins=np.arange(0, 300 ), alpha=0.5) 
-ax_all.hist(l3_all,  label="L3",   bins=np.arange(0, 300 ), alpha=0.5) 
-ax_all.hist(mem_all, label="DRAM", bins=np.arange(0, 300 ), alpha=0.5) 
-fig_all.legend()
+    out = os.path.join(OUT_DIR, "histogram.pdf")
+    plt.savefig(out)
+    print(f"saved {out}")
 
-os.makedirs("graphs", exist_ok=True)
-now = datetime.now() 
-date_time = now.strftime("%m:%d:%Y_%H:%M:%S")
-fig_all.savefig(str("graphs/"+date_time+".pdf"))
-plt.close(fig_all)
+
+if __name__ == "__main__":
+    main()

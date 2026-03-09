@@ -1,0 +1,26 @@
+1.2 Cache Architecture Summary
+===============================
+Run on the lab machine.
+
+Command: lscpu
+  ... (record full relevant output)
+
+Command: getconf -a | grep CACHE
+  ... (record relevant CACHE* lines)
+
+Command: less /proc/cpuinfo
+  ... (record CPU model and important cache lines)
+
+Computed cache parameters:
+- Line size: 64 bytes
+- L1 cache size: (record)
+- L1 associativity: (record)
+- L1 sets: cache_size / (line_size * associativity)
+
+- L2 cache size: (record)
+- L2 associativity: (record)
+- L2 sets: cache_size / (line_size * associativity)
+
+- L3 cache size: (record)
+- L3 associativity: (record)
+- L3 sets: cache_size / (line_size * associativity)
