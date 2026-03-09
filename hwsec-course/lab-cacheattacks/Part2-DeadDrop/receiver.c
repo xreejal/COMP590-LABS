@@ -129,7 +129,9 @@ static int calibrate_threshold(void *region, volatile char *probe)
         hit_sum += measure_set_latency(region, set);
 
         for (int other = 0; other < MAX_MESSAGES; other++) {
-            if (other == set) continue;
+            if (other == set) {
+                continue;
+            }
             prime_set(region, other, probe);
         }
         miss_sum += measure_set_latency(region, set);
@@ -208,6 +210,8 @@ int main(int argc, char **argv)
     int rounds_seen = 0;
 
     int order[L2_NUM_SETS];
+    uint64_t latencies[MAX_MESSAGES];
+    int use_threshold = 0;
 
     srand((unsigned)time(NULL));
 
@@ -225,8 +229,13 @@ int main(int argc, char **argv)
     int threshold = read_threshold_override();
     if (threshold > 0) {
         printf("Using DEADDROP_THRESHOLD=%d\n", threshold);
+        use_threshold = 1;
     } else {
-        threshold = calibrate_threshold(region, &probe);
+        use_threshold = 0;
+        int calib_threshold = calibrate_threshold(region, &probe);
+        if (calib_threshold > 0) {
+            threshold = calib_threshold;
+        }
     }
 
     printf("Receiver monitoring values 0-255 on L2 set indices.\n");
@@ -246,14 +255,26 @@ int main(int argc, char **argv)
 
         delay_busy(PRIME_DELAY_ITERS);
 
-        for (int idx = SAMPLES_PER_ROUND - 1; idx >= 0; idx--) {
-            int set_index = idx;
-
+        for (int set_index = MAX_MESSAGES - 1; set_index >= 0; set_index--) {
             uint64_t lat = measure_set_latency(region, set_index);
-            if ((int)lat > threshold && set_index < MAX_MESSAGES) {
+            latencies[set_index] = lat;
+            if (use_threshold && (int)lat > threshold) {
                 vote[set_index]++;
                 latency_sum[set_index] += (int)lat;
             }
+        }
+
+        if (!use_threshold) {
+            int best_set = 0;
+            uint64_t best_lat = latencies[0];
+            for (int i = 1; i < MAX_MESSAGES; i++) {
+                if (latencies[i] > best_lat) {
+                    best_lat = latencies[i];
+                    best_set = i;
+                }
+            }
+            vote[best_set]++;
+            latency_sum[best_set] += (int)best_lat;
         }
 
         printf("Round %d complete\n", rounds_seen);

