@@ -11,7 +11,7 @@
 #define LINE_SIZE 64
 #define STRIDE (NUM_L2_CACHE_SETS * LINE_SIZE)
 
-#define REPEATS 2000
+#define REPEATS 3000
 
 volatile uint8_t *buf;
 volatile uint8_t *eviction_sets[NUM_L2_CACHE_SETS][WAYS];
@@ -100,7 +100,7 @@ int main() {
                     tmp ^= *eviction_sets[set][w];
                 }
 
-                wait_cycles(5000);
+                wait_cycles(8000);
 
                 /* PROBE this set */
 
