@@ -37,7 +37,7 @@ void build_set(int idx) {
     prev->next = NULL;
 }
 
-// Traverse a set
+// Traverse a set and return access time
 uint64_t traverse_set(int idx) {
     struct node *p = sets[idx];
     uint64_t t0 = rdtscp();
@@ -45,7 +45,7 @@ uint64_t traverse_set(int idx) {
     return rdtscp() - t0;
 }
 
-// Calibrate thresholds
+// Calibrate thresholds (~1.3x of average)
 void calibrate() {
     for(int i=0;i<=8;i++){
         uint64_t sum=0;
@@ -53,11 +53,11 @@ void calibrate() {
             traverse_set(i); // warm-up
             sum += traverse_set(i);
         }
-        thresholds[i] = (sum/500) * 13 / 10; // ~1.3x average, less aggressive
+        thresholds[i] = (sum / 500) * 13 / 10;
     }
 }
 
-// Stable signal check: multiple readings
+// Check if set 8 is high consistently (majority of checks)
 int signal_high() {
     int high_count = 0;
     const int CHECKS = 5;
@@ -65,7 +65,30 @@ int signal_high() {
         if(traverse_set(8) > thresholds[8]) high_count++;
         for(volatile int w=0; w<100; w++);
     }
-    return high_count >= 3; // majority
+    return high_count >= 3;
+}
+
+// Wait for a stable high signal on set 8
+void wait_for_start() {
+    const int REQUIRED_HIGH = 5;
+    int count = 0;
+    while(1) {
+        if(signal_high()) count++;
+        else count = 0;
+        for(volatile int w=0; w<1000; w++);
+        if(count >= REQUIRED_HIGH) return; // stable high detected
+    }
+}
+
+// Wait for a stable drop on set 8
+void wait_for_drop() {
+    const int REQUIRED_LOW = 5;
+    int lows = 0;
+    while(lows < REQUIRED_LOW){
+        if(!signal_high()) lows++;
+        else lows = 0;
+        for(volatile int w=0; w<3000; w++);
+    }
 }
 
 int main() {
@@ -84,36 +107,25 @@ int main() {
     printf("Listening...\n");
 
     while(1){
-        // Wait for consistent start signal
-        while(!signal_high()){ for(volatile int w=0; w<1000; w++); }
+        wait_for_start(); // only start after stable high
 
-        // Byte detected, start sampling
-        int bits[8]={0};
+        int bits[8] = {0};
         const int MAX_SAMPLES = 100;
 
         for(int sample=0; sample<MAX_SAMPLES; sample++){
             if(!signal_high()) continue; // skip weak/noisy periods
-
             for(int b=0;b<8;b++){
                 if(traverse_set(b) > thresholds[b]) bits[b]++;
             }
-            for(volatile int wait=0; wait<3000; wait++);
+            for(volatile int w=0; w<3000; w++);
         }
 
-        // Decode byte using majority
-        int value=0;
+        int value = 0;
         for(int b=0;b<8;b++){
             if(bits[b] > MAX_SAMPLES/2) value |= 1<<b;
         }
-
         printf("%d\n", value);
 
-        // Wait for signal to drop consistently
-        int lows=0;
-        while(lows<8){
-            if(!signal_high()) lows++;
-            else lows=0;
-            for(volatile int w=0; w<3000; w++);
-        }
+        wait_for_drop(); // wait for stable drop before next byte
     }
 }
