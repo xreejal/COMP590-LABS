@@ -11,6 +11,8 @@
 #define SET_SPACING 32
 #define BASE_SET 64
 
+//simple sender
+
 struct node { struct node *next; char pad[64 - sizeof(struct node*)]; };
 
 void *buf;
