@@ -8,57 +8,32 @@
 #define BUFF_SIZE (1<<21)
 #define L2_WAYS 16
 #define STRIDE (1<<16)
-
 #define SET_SPACING 32
 #define BASE_SET 64
 
-struct node {
-    struct node *next;
-    char pad[64 - sizeof(struct node*)];
-};
+struct node { struct node *next; char pad[64 - sizeof(struct node*)]; };
 
 void *buf;
 struct node *sets[9];
 
-void shuffle(struct node **array, int n) {
-    for (int i=n-1;i>0;i--) {
-        int j = rand()%(i+1);
-        struct node *tmp = array[i];
-        array[i] = array[j];
-        array[j] = tmp;
-    }
-}
-
 void build_set(int idx) {
     char *base = (char*)buf;
-    struct node *nodes[L2_WAYS];
-
-    int phys = BASE_SET + idx * SET_SPACING;
+    struct node *prev = NULL;
 
     for (int i=0;i<L2_WAYS;i++) {
-        nodes[i] = (struct node*)(base + phys*64 + i*STRIDE);
+        struct node *n = (struct node*)(base + (BASE_SET + idx*SET_SPACING)*64 + i*STRIDE);
+        if (prev) prev->next = n;
+        else sets[idx] = n;
+        prev = n;
     }
-
-    shuffle(nodes, L2_WAYS);
-
-    for (int i=0;i<L2_WAYS-1;i++)
-        nodes[i]->next = nodes[i+1];
-
-    nodes[L2_WAYS-1]->next = NULL;
-
-    sets[idx] = nodes[0];
+    prev->next = NULL;
 }
 
 void evict_set(int idx) {
     struct node *p = sets[idx];
-
-    while (p)
-        p = p->next;
-
-    // second pass for stronger eviction
+    while (p) p = p->next;
     p = sets[idx];
-    while (p)
-        p = p->next;
+    while (p) p = p->next;
 }
 
 int main() {
@@ -66,49 +41,29 @@ int main() {
     srand(time(NULL));
 
     buf = mmap(NULL, BUFF_SIZE, PROT_READ|PROT_WRITE,
-        MAP_POPULATE|MAP_ANONYMOUS|MAP_PRIVATE|MAP_HUGETLB, -1, 0);
+        MAP_POPULATE|MAP_ANONYMOUS|MAP_PRIVATE|MAP_HUGETLB,-1,0);
 
-    if (buf == (void*)-1) {
-        perror("mmap");
-        exit(1);
-    }
+    if(buf==(void*)-1){ perror("mmap"); exit(1); }
 
-    *((char*)buf) = 1;
+    *((char*)buf)=1;
 
-    // Build sets for bits + valid
-    for (int i=0;i<=8;i++)
-        build_set(i);
+    for(int i=0;i<=8;i++) build_set(i);
 
-    printf("Sender ready. Please type a message.\n");
+    printf("Sender ready.\n");
 
-    while (1) {
+    while(1){
+        char buf_in[128];
+        if(!fgets(buf_in,sizeof(buf_in),stdin)) break;
 
-        char text_buf[128];
+        int value = atoi(buf_in);
+        if(value<0 || value>255){ printf("0-255 only\n"); continue; }
 
-        if (!fgets(text_buf,sizeof(text_buf),stdin))
-            break;
+        printf("Sending %d\n",value);
 
-        int value = atoi(text_buf);
-
-        if (value < 0 || value > 255) {
-            printf("Enter value 0-255\n");
-            continue;
-        }
-
-        printf("Sending %d\n", value);
-
-        long duration = 2000000;
-
-        for (long k=0;k<duration;k++) {
-
-            // VALID signal
+        for(long k=0;k<2000000;k++){
             evict_set(8);
-
-            // send bits
-            for (int i=0;i<8;i++) {
-                if ((value >> i) & 1)
-                    evict_set(i);
-            }
+            for(int i=0;i<8;i++)
+                if((value>>i)&1) evict_set(i);
         }
 
         printf("Sent.\n");
