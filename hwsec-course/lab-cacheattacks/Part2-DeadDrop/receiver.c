@@ -17,84 +17,102 @@ void *buf;
 struct node *sets[9];
 uint64_t thresholds[9];
 
+// RDTSCP timing
 static inline uint64_t rdtscp() {
     uint32_t lo, hi;
-    asm volatile("rdtscp" : "=a"(lo), "=d"(hi)::"rcx");
-    return ((uint64_t)hi<<32)|lo;
+    asm volatile("rdtscp" : "=a"(lo), "=d"(hi) :: "rcx");
+    return ((uint64_t)hi << 32) | lo;
 }
 
-// Build a set with L2_WAYS nodes
+// Build linked list for a set
 void build_set(int idx) {
     char *base = (char*)buf;
     struct node *prev = NULL;
-    for (int i = 0; i < L2_WAYS; i++) {
+    for(int i=0;i<L2_WAYS;i++){
         struct node *n = (struct node*)(base + (BASE_SET + idx*SET_SPACING)*64 + i*STRIDE);
-        if (prev) prev->next = n;
+        if(prev) prev->next = n;
         else sets[idx] = n;
         prev = n;
     }
     prev->next = NULL;
 }
 
-// Prime a set
-void prime_set(int idx) { struct node *p = sets[idx]; while(p) p = p->next; }
-
-// Probe a set and return access time
-uint64_t probe_set(int idx) {
-    uint64_t start = rdtscp();
-    struct node *p = sets[idx]; while(p) p = p->next;
-    return rdtscp()-start;
+// Traverse a set
+uint64_t traverse_set(int idx) {
+    struct node *p = sets[idx];
+    uint64_t t0 = rdtscp();
+    while(p) p = p->next;
+    return rdtscp() - t0;
 }
 
-// Simple threshold calibration
+// Calibrate thresholds (avg_hit * 2)
 void calibrate() {
     for(int i=0;i<=8;i++){
         uint64_t sum=0;
-        for(int j=0;j<1000;j++){ prime_set(i); sum+=probe_set(i); }
-        thresholds[i] = sum/1000*2;
+        for(int j=0;j<500;j++){
+            traverse_set(i);
+            sum += traverse_set(i);
+        }
+        thresholds[i] = (sum/500)*2;
+        printf("Set %d threshold=%llu\n", i, (unsigned long long)thresholds[i]);
     }
 }
+
+// Check if set 8 is high
+int signal_high() { return traverse_set(8) > thresholds[8]; }
 
 int main() {
     srand(time(NULL));
 
     buf = mmap(NULL, BUFF_SIZE, PROT_READ|PROT_WRITE,
-        MAP_POPULATE|MAP_ANONYMOUS|MAP_PRIVATE|MAP_HUGETLB,-1,0);
+               MAP_POPULATE|MAP_ANONYMOUS|MAP_PRIVATE|MAP_HUGETLB,-1,0);
     if(buf==(void*)-1){ perror("mmap"); exit(1); }
     *((char*)buf)=1;
 
     for(int i=0;i<=8;i++) build_set(i);
     calibrate();
 
-    printf("Press enter to start.\n"); getchar();
-    printf("Receiver listening...\n");
+    printf("Press Enter to start.\n"); getchar();
+    printf("Listening...\n");
 
     while(1){
-        prime_set(8);
-        for(volatile int i=0;i<2000;i++);
-        if(probe_set(8) > thresholds[8]){
-            int bits[8]={0}, valid=0, samples=100;
-            for(int s=0;s<samples;s++){
-                for(int i=0;i<=8;i++) prime_set(i);
-                for(volatile int k=0;k<5000;k++);
-                if(probe_set(8) > thresholds[8]){
-                    valid++;
-                    for(int i=0;i<8;i++)
-                        if(probe_set(i)>thresholds[i]) bits[i]++;
-                }
-            }
-            if(valid>samples/2){
-                int val=0;
-                for(int i=0;i<8;i++) if(bits[i]>valid*0.75) val|=1<<i;
-                printf("%d\n",val);
+        // Wait for start signal (set 8 high)
+        while(!signal_high());
+
+        // Byte detected, start sampling
+        int bits[8]={0};
+        int sample_count=0;
+        const int MAX_SAMPLES=120;
+
+        for(sample_count=0; sample_count<MAX_SAMPLES; sample_count++){
+            // Sample all sets quickly
+            for(int i=0;i<=8;i++) traverse_set(i);
+
+            if(signal_high()){
+                // Count bit pulses
+                for(int b=0;b<8;b++)
+                    if(traverse_set(b) > thresholds[b]) bits[b]++;
+            } else {
+                break; // signal dropped early
             }
 
-            int lows=0;
-            while(lows<10){
-                prime_set(8);
-                for(volatile int i=0;i<5000;i++);
-                if(probe_set(8)<thresholds[8]) lows++; else lows=0;
-            }
+            for(volatile int wait=0; wait<3000; wait++); // small delay between samples
+        }
+
+        // Decode byte using majority
+        int value=0;
+        for(int b=0;b<8;b++){
+            if(bits[b] > sample_count/2) value |= 1<<b;
+        }
+
+        printf("Received: %d\n", value);
+
+        // Wait for signal to go low consistently before next byte
+        int lows=0;
+        while(lows<8){
+            if(!signal_high()) lows++;
+            else lows=0;
+            for(volatile int w=0; w<3000; w++);
         }
     }
 }
