@@ -15,9 +15,7 @@ int main(int argc, char **argv)
         exit(EXIT_FAILURE);
     }
 
-    for (uint64_t i = 0; i < BUFF_SIZE; i += 64) {
-    	*((char*)buf + i) = 1;
-	}
+    *((char*)buf) = 1;
 
     printf("Please press enter.\n");
     char text_buf[128];
@@ -56,22 +54,22 @@ int main(int argc, char **argv)
 
         for (int idx = 0; idx < 256; idx++) {
             int val = test_order[idx];
-            int target_set = (val * 4) % 1024;
+            int target_set = val * 4;
 
             // PRIME: Fill our addresses for this set
             // This is EXACTLY what test_detect does
             for (int way = 0; way < L2_WAYS; way++) {
-                uint64_t offset = (target_set * 64);
+                uint64_t offset = (way << 16) | (target_set << 6);
                 tmp = *((char *)buf + offset);
             }
 
             // Shorter delay to scan faster
-            for (volatile long i = 0; i < 20000000; i++);
+            for (volatile long i = 0; i < 10000000; i++);
 
             // PROBE: Measure latency
             uint64_t total_time = 0;
             for (int way = 0; way < L2_WAYS; way++) {
-                uint64_t offset = (target_set * 64);
+                uint64_t offset = (way << 16) | (target_set << 6);
                 uint64_t time = measure_one_block_access_time((uint64_t)buf + offset);
                 total_time += time;
             }
