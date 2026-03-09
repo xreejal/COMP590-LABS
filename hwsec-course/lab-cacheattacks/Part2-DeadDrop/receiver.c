@@ -1,291 +1,148 @@
-#include "util.h"
-#include <ctype.h>
-#include <errno.h>
-#include <stdio.h>
-#include <stdlib.h>
+#include"util.h"
 #include <sys/mman.h>
-#include <time.h>
 
-#ifndef MAP_POPULATE
-#define MAP_POPULATE 0
-#endif
+#define BUFF_SIZE (1<<21)
+#define L2_WAYS 16
+#define THRESHOLD 125  // Increased threshold to reduce false positives
 
-#ifndef MAP_ANONYMOUS
-#define MAP_ANONYMOUS MAP_ANON
-#endif
-
-#ifndef MAP_HUGETLB
-#define MAP_HUGETLB 0
-#endif
-
-#define REGION_BYTES (2ULL * 1024ULL * 1024ULL)
-#define CACHE_LINE_BYTES 64ULL
-#define L2_NUM_SETS 1024
-#define L2_ASSOCIATIVITY 4
-#define EV_SET_SIZE (L2_ASSOCIATIVITY + 2)
-#define SET_STRIDE (CACHE_LINE_BYTES * L2_NUM_SETS)
-#define MAX_MESSAGES 256
-#define SAMPLES_PER_ROUND L2_NUM_SETS
-#define PRIME_DELAY_ITERS 12000
-#define COOLDOWN_ITERS 200000000L
-#define DECODE_ROUNDS 4
-#define CONFIRMATION_COUNT 4
-#define TOP_SHOW_COUNT 5
-#define DEFAULT_THRESHOLD 150
-
-static void *allocate_channel_region(void)
+int main(int argc, char **argv)
 {
-    void *region = mmap(NULL, REGION_BYTES, PROT_READ | PROT_WRITE,
-                        MAP_POPULATE | MAP_ANONYMOUS | MAP_PRIVATE | MAP_HUGETLB,
-                        -1, 0);
+    void *buf = mmap(NULL, BUFF_SIZE, PROT_READ | PROT_WRITE,
+                     MAP_POPULATE | MAP_ANONYMOUS | MAP_PRIVATE | MAP_HUGETLB, -1, 0);
 
-    if (region == (void *)-1) {
+    if (buf == (void*) -1) {
         perror("mmap error");
         exit(EXIT_FAILURE);
     }
 
-    return region;
-}
+    *((char*)buf) = 1;
 
-static void warm_up_cache_region(void *region, volatile char *probe)
-{
-    ((volatile char *)region)[0] = 1;
+    printf("Please press enter.\n");
+    char text_buf[128];
+    fgets(text_buf, sizeof(text_buf), stdin);
 
-    for (uint64_t offset = 0; offset < REGION_BYTES; offset += CACHE_LINE_BYTES) {
-        *probe = ((volatile char *)region)[offset];
-    }
-}
-
-static void prime_set(void *region, int set_index, volatile char *probe)
-{
-    volatile char *base = (volatile char *)region;
-    uint64_t base_addr = (uint64_t)base + (uint64_t)set_index * CACHE_LINE_BYTES;
-
-    for (int way = 0; way < EV_SET_SIZE; way++) {
-        uint64_t offset = base_addr + (uint64_t)way * SET_STRIDE - (uint64_t)base;
-        *probe = base[offset];
-    }
-}
-
-static uint64_t measure_set_latency(void *region, int set_index)
-{
-    uint64_t total = 0;
-    volatile char *base = (volatile char *)region;
-    uint64_t base_addr = (uint64_t)base + (uint64_t)set_index * CACHE_LINE_BYTES;
-
-    for (int way = 0; way < EV_SET_SIZE; way++) {
-        uint64_t offset = base_addr + (uint64_t)way * SET_STRIDE - (uint64_t)base;
-        total += measure_one_block_access_time((uint64_t)(base + offset));
-    }
-
-    return total / EV_SET_SIZE;
-}
-
-static void shuffle_order(int *order, int n)
-{
-    for (int i = n - 1; i > 0; i--) {
-        int j = rand() % (i + 1);
-        int tmp = order[i];
-        order[i] = order[j];
-        order[j] = tmp;
-    }
-}
-
-static int read_threshold_override(void)
-{
-    const char *v = getenv("DEADDROP_THRESHOLD");
-    if (!v || *v == '\0') {
-        return 0;
-    }
-
-    errno = 0;
-    char *tail = NULL;
-    long parsed = strtol(v, &tail, 10);
-
-    if (tail == v || errno != 0) {
-        return 0;
-    }
-
-    while (isspace((unsigned char)*tail)) {
-        tail++;
-    }
-    if (*tail != '\0' || parsed < 1 || parsed > 10000) {
-        return 0;
-    }
-
-    return (int)parsed;
-}
-
-static int calibrate_threshold(void *region, volatile char *probe)
-{
-    uint64_t hit_sum = 0;
-    uint64_t miss_sum = 0;
-    int rounds = 64;
-
-    for (int i = 0; i < rounds; i++) {
-        int set = rand() % MAX_MESSAGES;
-
-        prime_set(region, set, probe);
-        hit_sum += measure_set_latency(region, set);
-
-        for (int other = 0; other < MAX_MESSAGES; other++) {
-            if (other == set) continue;
-            prime_set(region, other, probe);
-        }
-        miss_sum += measure_set_latency(region, set);
-    }
-
-    if (hit_sum == 0 || miss_sum == 0) {
-        return DEFAULT_THRESHOLD;
-    }
-
-    uint64_t hit_avg = hit_sum / (uint64_t)rounds;
-    uint64_t miss_avg = miss_sum / (uint64_t)rounds;
-    int threshold = (int)((hit_avg + miss_avg) / 2);
-
-    if (threshold <= (int)hit_avg) {
-        threshold = (int)hit_avg + 20;
-    }
-    if (threshold < 1) {
-        threshold = DEFAULT_THRESHOLD;
-    }
-
-    printf("Calibration: hit=%llu miss=%llu threshold=%d\n",
-           (unsigned long long)hit_avg,
-           (unsigned long long)miss_avg,
-           threshold);
-
-    return threshold;
-}
-
-static void print_top_hits(const int *hit_count)
-{
-    int ranked[MAX_MESSAGES];
-
-    for (int i = 0; i < MAX_MESSAGES; i++) {
-        ranked[i] = hit_count[i];
-    }
-
-    printf("Top detections: ");
-    for (int shown = 0; shown < TOP_SHOW_COUNT; shown++) {
-        int best_value = -1;
-        int best_count = 0;
-
-        for (int v = 0; v < MAX_MESSAGES; v++) {
-            if (ranked[v] > best_count) {
-                best_count = ranked[v];
-                best_value = v;
-            }
-        }
-
-        if (best_value < 0 || best_count <= 0) {
-            break;
-        }
-
-        printf("%d(cnt=%d) ", best_value, best_count);
-        ranked[best_value] = -1;
-    }
-    printf("\n");
-}
-
-static void delay_busy(long iters)
-{
-    for (volatile long i = 0; i < iters; i++) {
-    }
-}
-
-int main(int argc, char **argv)
-{
-    (void)argc;
-    (void)argv;
-    setvbuf(stdout, NULL, _IOLBF, 0);
-
-    void *region = allocate_channel_region();
-    volatile char probe = 0;
-
-    int vote[MAX_MESSAGES] = {0};
-    int latency_sum[MAX_MESSAGES] = {0};
-    int rounds_seen = 0;
-
-    int order[L2_NUM_SETS];
-
-    srand((unsigned)time(NULL));
-
-    printf("Receiver ready, waiting for start Enter key.\n");
-    {
-        char line[2];
-        if (!fgets(line, sizeof(line), stdin)) {
-            munmap(region, REGION_BYTES);
-            return 0;
+    // Warmup
+    printf("Warming up...\n");
+    volatile char tmp;
+    for (int w = 0; w < 10; w++) {
+        for (uint64_t i = 0; i < BUFF_SIZE; i += 64) {
+            tmp = *((char *)buf + i);
         }
     }
 
-    warm_up_cache_region(region, &probe);
+    printf("Receiver now listening.\n");
 
-    int threshold = read_threshold_override();
-    if (threshold > 0) {
-        printf("Using DEADDROP_THRESHOLD=%d\n", threshold);
-    } else {
-        threshold = calibrate_threshold(region, &probe);
-    }
-
-    printf("Receiver monitoring values 0-255 on L2 set indices.\n");
+    // Track detection counts and total latency for each value
+    int detection_counts[256] = {0};
+    int total_latency[256] = {0};
+    int total_rounds = 0;
 
     while (1) {
-        rounds_seen++;
+        total_rounds++;
 
-        for (int i = 0; i < L2_NUM_SETS; i++) {
-            order[i] = i;
+        // Test all 256 possible values in RANDOM order to avoid bias
+        int test_order[256];
+        for (int i = 0; i < 256; i++) test_order[i] = i;
+
+        // Simple shuffle
+        for (int i = 255; i > 0; i--) {
+            int j = rand() % (i + 1);
+            int tmp = test_order[i];
+            test_order[i] = test_order[j];
+            test_order[j] = tmp;
         }
-        shuffle_order(order, L2_NUM_SETS);
 
-        for (int idx = 0; idx < L2_NUM_SETS; idx++) {
-            int set_index = order[idx];
-            prime_set(region, set_index, &probe);
-        }
+        for (int idx = 0; idx < 256; idx++) {
+            int val = test_order[idx];
+            int target_set = val * 4;
 
-        delay_busy(PRIME_DELAY_ITERS);
+            // PRIME: Fill our addresses for this set
+            // This is EXACTLY what test_detect does
+            for (int way = 0; way < L2_WAYS; way++) {
+                uint64_t offset = (way << 16) | (target_set << 6);
+                tmp = *((char *)buf + offset);
+            }
 
-        for (int idx = SAMPLES_PER_ROUND - 1; idx >= 0; idx--) {
-            int set_index = idx;
+            // Shorter delay to scan faster
+            for (volatile long i = 0; i < 10000000; i++);
 
-            uint64_t lat = measure_set_latency(region, set_index);
-            if ((int)lat > threshold && set_index < MAX_MESSAGES) {
-                vote[set_index]++;
-                latency_sum[set_index] += (int)lat;
+            // PROBE: Measure latency
+            uint64_t total_time = 0;
+            for (int way = 0; way < L2_WAYS; way++) {
+                uint64_t offset = (way << 16) | (target_set << 6);
+                uint64_t time = measure_one_block_access_time((uint64_t)buf + offset);
+                total_time += time;
+            }
+
+            int avg = total_time / L2_WAYS;
+
+            // If evicted, count this value and track latency
+            if (avg > THRESHOLD) {
+                detection_counts[val]++;
+                total_latency[val] += avg;
             }
         }
 
-        printf("Round %d complete\n", rounds_seen);
+        // Show progress
+        printf("Round %d complete\n", total_rounds);
 
-        int best_cnt = 0;
-        int best_val = -1;
-        int best_avg = 0;
-        for (int v = 0; v < MAX_MESSAGES; v++) {
-            int avg = vote[v] > 0 ? (latency_sum[v] / vote[v]) : 0;
-            if (vote[v] > best_cnt || (vote[v] == best_cnt && avg > best_avg)) {
-                best_cnt = vote[v];
-                best_val = v;
-                best_avg = avg;
+        // Every round, check if we have a winner
+        // Use detection count first, then average latency as tie-breaker
+        int max_count = 0;
+        int winner = -1;
+        int winner_avg_lat = 0;
+
+        for (int v = 0; v < 256; v++) {
+            int avg_lat = detection_counts[v] > 0 ? total_latency[v] / detection_counts[v] : 0;
+
+            if (detection_counts[v] > max_count ||
+                (detection_counts[v] == max_count && avg_lat > winner_avg_lat)) {
+                max_count = detection_counts[v];
+                winner = v;
+                winner_avg_lat = avg_lat;
             }
         }
 
-        print_top_hits(vote);
+        // Show top 5 detected values
+        printf("  Top detections: ");
+        for (int i = 0; i < 5; i++) {
+            int max_c = 0;
+            int max_v = -1;
+            for (int v = 0; v < 256; v++) {
+                if (detection_counts[v] > max_c) {
+                    max_c = detection_counts[v];
+                    max_v = v;
+                }
+            }
+            if (max_c > 0) {
+                printf("val=%d(cnt=%d) ", max_v, max_c);
+                detection_counts[max_v] = -999; // Mark as shown
+            }
+        }
+        // Restore counts
+        for (int v = 0; v < 256; v++) {
+            if (detection_counts[v] == -999) detection_counts[v] = max_count;
+        }
+        printf("\n");
 
-        if (rounds_seen >= DECODE_ROUNDS && best_cnt >= CONFIRMATION_COUNT) {
-            printf("\n>>> RECEIVED: %d (hits=%d/%d, avg_lat=%d) <<<\n\n",
-                   best_val, best_cnt, rounds_seen, best_avg);
+        // If a value detected consistently (in at least 80% of last 5 rounds), declare winner
+        if (total_rounds >= 5 && max_count >= 4) {
+            printf("\n>>> RECEIVED: %d (detected %d/%d times, avg_lat=%d) <<<\n\n",
+                   winner, max_count, total_rounds, winner_avg_lat);
             fflush(stdout);
 
-            for (int i = 0; i < MAX_MESSAGES; i++) {
-                vote[i] = 0;
-                latency_sum[i] = 0;
+            // Reset
+            for (int v = 0; v < 256; v++) {
+                detection_counts[v] = 0;
+                total_latency[v] = 0;
             }
-            rounds_seen = 0;
-            delay_busy(COOLDOWN_ITERS);
+            total_rounds = 0;
+
+            // Cooldown
+            for (volatile long i = 0; i < 500000000; i++);
         }
     }
 
-    munmap(region, REGION_BYTES);
+    munmap(buf, BUFF_SIZE);
     return 0;
 }

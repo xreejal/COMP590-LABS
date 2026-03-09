@@ -2,6 +2,7 @@
 #include <sys/mman.h>
 
 #define BUFF_SIZE (1<<21)
+#define L2_SIZE (1024 * 1024)
 
 int main(int argc, char **argv)
 {
@@ -36,17 +37,22 @@ int main(int argc, char **argv)
             continue;
         }
 
-        int target_set = value * 4;
-        printf("Sending %d (set %d)...\n", value, target_set);
-        printf("Press Ctrl+C when receiver shows the correct value.\n");
+        printf("Sending %d...\n", value);
 
-        // Fill the target set CONTINUOUSLY until user stops
-        // This ensures receiver has time to scan all 256 sets multiple times
-        while (1) {
-            for (int variant = 0; variant < 32; variant++) {
-                uint64_t offset = (variant << 16) | (target_set << 6);
-                tmp = *((char *)buf + offset);
+        // Strategy: Encode using NUMBER OF EVICTIONS
+        // Send 'value' evictions of the entire L2 cache
+        // Receiver will count how many evictions it detects
+
+        for (int transmit = 0; transmit < value + 1; transmit++) {
+            // Fill entire L2 cache with our buffer
+            for (int repeat = 0; repeat < 3; repeat++) {
+                for (uint64_t offset = 0; offset < L2_SIZE; offset += 64) {
+                    tmp = *((char *)buf + offset);
+                }
             }
+
+            // Pause between transmissions so receiver can detect
+            for (volatile long i = 0; i < 200000000; i++);
         }
 
         printf("Done sending %d\n", value);

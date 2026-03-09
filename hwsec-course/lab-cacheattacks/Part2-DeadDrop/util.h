@@ -1,4 +1,3 @@
-
 // You may only use fgets() to pull input from stdin
 // You may use any print function to stdout to print 
 // out chat messages
