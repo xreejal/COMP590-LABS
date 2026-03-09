@@ -11,7 +11,7 @@
 #define LINE_SIZE 64
 #define STRIDE (NUM_L2_CACHE_SETS * LINE_SIZE)
 
-#define REPEATS 3000
+#define REPEATS 1500
 
 static int persistent_scores[NUM_L2_CACHE_SETS] = {0};
 
@@ -98,7 +98,7 @@ int main() {
                 int set = perm[i];
 
                 /* PRIME this set */
-                for(int w = 0; w < WAYS; w++) {
+                for(int w = 0; w < WAYS - 2; w++) {
                     tmp ^= *eviction_sets[set][w];
                 }
 
@@ -111,7 +111,7 @@ int main() {
                 for(int probe = 0; probe < 2; probe++) {
                     uint64_t start = rdtscp();
 
-                    for(int w = WAYS - 1; w >= 0; w--) {
+                    for(int w = WAYS - 3; w >= 0; w--) {
                         tmp ^= *eviction_sets[set][w];
                     }
 
