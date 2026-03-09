@@ -13,6 +13,7 @@
 #define BASE_SET 64
 
 // Linked list node (one per cache line)
+//works.
 struct node {
     struct node *next;
     char pad[64 - sizeof(struct node*)];
