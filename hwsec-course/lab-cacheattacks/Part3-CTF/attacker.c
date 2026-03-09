@@ -93,35 +93,34 @@ int main() {
 
             shuffle(perm);
 
+            /* PRIME */
+            for(int i = 0; i < NUM_L2_CACHE_SETS; i++) {
+                int set = perm[i];
+                for(int w = 0; w < WAYS - 2; w++)
+                    tmp ^= *eviction_sets[set][w];
+            }
+
+            /* let victim run */
+            wait_cycles(8000);
+
+            /* PROBE */
             for(int i = 0; i < NUM_L2_CACHE_SETS; i++) {
 
-                int set = perm[i];
+            int set = perm[i];
+            uint64_t latency = 0;
 
-                /* PRIME this set */
-                for(int w = 0; w < WAYS - 2; w++) {
+            for(int probe = 0; probe < 2; probe++) {
+
+                uint64_t start = rdtscp();
+
+                for(int w = WAYS - 3; w >= 0; w--)
                     tmp ^= *eviction_sets[set][w];
-                }
 
-                wait_cycles(8000);
+                uint64_t end = rdtscp();
+                latency += end - start;
+            }
 
-                /* PROBE this set */
-
-                uint64_t latency = 0;
-
-                for(int probe = 0; probe < 2; probe++) {
-                    uint64_t start = rdtscp();
-
-                    for(int w = WAYS - 3; w >= 0; w--) {
-                        tmp ^= *eviction_sets[set][w];
-                    }
-
-                    uint64_t end = rdtscp();
-                    latency += (end - start);
-                }
-
-                scores[set] += latency;
-
-                
+            scores[set] += latency;
             }
         }
 
