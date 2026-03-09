@@ -107,7 +107,7 @@ int main() {
                 for(int r = 0; r < 2; r++) {
                     uint64_t start = rdtscp();
 
-                    for(int w = 0; w < WAYS; w++) {
+                    for(int w = WAYS - 1; w >= 0; w--) {
                         tmp ^= *eviction_sets[set][w];
                     }
 
