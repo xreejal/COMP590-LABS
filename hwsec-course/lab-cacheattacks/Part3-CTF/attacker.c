@@ -25,8 +25,9 @@ static inline uint64_t rdtsc() {
 }
 
 static inline uint64_t rdtscp() {
-    unsigned int aux;
-    return __rdtscp(&aux);
+    unsigned hi, lo;
+    asm volatile ("rdtscp" : "=a"(lo), "=d"(hi) :: "rcx");
+    return ((uint64_t)hi << 32) | lo;
 }
 
 static inline void wait_cycles(uint64_t cycles) {
