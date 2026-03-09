@@ -26,9 +26,14 @@ static inline uint64_t rdtsc() {
     return ((uint64_t)hi << 32) | lo;
 }
 
+static inline uint64_t rdtscp() {
+    unsigned int aux;
+    return __rdtscp(&aux);
+}
+
 static inline void wait_cycles(uint64_t cycles) {
-    uint64_t start = rdtsc();
-    while (rdtsc() - start < cycles);
+    uint64_t start = rdtscp();
+    while (rdtscp() - start < cycles);
 }
 
 void shuffle(int *arr) {
@@ -67,7 +72,7 @@ int main() {
 
     volatile uint8_t tmp = 0;
 
-    srand(rdtsc());
+    srand(rdtscp());
 
     while(1) {
         int order[NUM_L2_CACHE_SETS];
@@ -91,12 +96,12 @@ int main() {
 
                 int set = order[i];
 
-                uint64_t start = rdtsc();
+                uint64_t start = rdtscp();
 
                 for(int w = WAYS-1; w >= 0; w--)
                     tmp ^= *eviction_sets[set][w];
 
-                uint64_t latency = rdtsc() - start;
+                uint64_t latency = rdtscp() - start;
 
                 scores[set] += latency;
             }
