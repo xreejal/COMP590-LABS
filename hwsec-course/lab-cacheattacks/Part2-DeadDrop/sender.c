@@ -11,61 +11,82 @@
 #define SET_SPACING 32
 #define BASE_SET 64
 
-//simple sender
+struct node {
+    struct node *next;
+    char pad[64 - sizeof(struct node*)];
+};
 
-struct node { struct node *next; char pad[64 - sizeof(struct node*)]; };
+void *buffer;
+struct node *l2_sets[9];
 
-void *buf;
-struct node *sets[9];
-
-void build_set(int idx) {
-    char *base = (char*)buf;
+// Build a linked list for one set
+void create_set(int set_idx) {
+    char *base = (char*)buffer;
     struct node *prev = NULL;
 
-    for (int i=0;i<L2_WAYS;i++) {
-        struct node *n = (struct node*)(base + (BASE_SET + idx*SET_SPACING)*64 + i*STRIDE);
-        if (prev) prev->next = n;
-        else sets[idx] = n;
+    for(int i=0; i<L2_WAYS; i++){
+        struct node *n = (struct node*)(base + (BASE_SET + set_idx*SET_SPACING)*64 + i*STRIDE);
+        if(prev) prev->next = n;
+        else l2_sets[set_idx] = n;
         prev = n;
     }
     prev->next = NULL;
 }
 
-void evict_set(int idx) {
-    struct node *p = sets[idx];
-    while (p) p = p->next;
-    p = sets[idx];
-    while (p) p = p->next;
+// Traverse a set to evict its cache lines
+void evict_set(int idx){
+    struct node *curr = l2_sets[idx];
+    while(curr) curr = curr->next;
+    // Second pass for reliability
+    curr = l2_sets[idx];
+    while(curr) curr = curr->next;
+}
+
+// Evict only the data bits (0–7) in random order
+void evict_data_bits_random(int value){
+    int bits[8];
+    for(int i=0;i<8;i++) bits[i] = i;
+
+    // Fisher-Yates shuffle
+    for(int i=7;i>0;i--){
+        int j = rand() % (i+1);
+        int tmp = bits[i]; bits[i] = bits[j]; bits[j] = tmp;
+    }
+
+    for(int i=0;i<8;i++){
+        int b = bits[i];
+        if((value >> b) & 1) evict_set(b);
+    }
 }
 
 int main() {
-
     srand(time(NULL));
 
-    buf = mmap(NULL, BUFF_SIZE, PROT_READ|PROT_WRITE,
-        MAP_POPULATE|MAP_ANONYMOUS|MAP_PRIVATE|MAP_HUGETLB,-1,0);
+    buffer = mmap(NULL, BUFF_SIZE, PROT_READ|PROT_WRITE,
+                  MAP_POPULATE|MAP_ANONYMOUS|MAP_PRIVATE|MAP_HUGETLB, -1, 0);
 
-    if(buf==(void*)-1){ perror("mmap"); exit(1); }
+    if(buffer==(void*)-1){ perror("mmap"); exit(1); }
 
-    *((char*)buf)=1;
+    *((char*)buffer) = 1;
 
-    for(int i=0;i<=8;i++) build_set(i);
+    for(int i=0;i<=8;i++) create_set(i);
 
     printf("Sender ready.\n");
 
-    while(1){
-        char buf_in[128];
-        if(!fgets(buf_in,sizeof(buf_in),stdin)) break;
+    char line[128];
+    while(fgets(line,sizeof(line),stdin)){
+        int value = atoi(line);
+        if(value<0 || value>255){ 
+            printf("Enter a value between 0 and 255\n"); 
+            continue; 
+        }
 
-        int value = atoi(buf_in);
-        if(value<0 || value>255){ printf("0-255 only\n"); continue; }
+        printf("Sending %d\n", value);
 
-        printf("Sending %d\n",value);
-
-        for(long k=0;k<2000000;k++){
-            evict_set(8);
-            for(int i=0;i<8;i++)
-                if((value>>i)&1) evict_set(i);
+        long iterations = 2000000;
+        while(iterations--){
+            evict_set(8);             // Valid bit
+            evict_data_bits_random(value); // Data bits
         }
 
         printf("Sent.\n");
