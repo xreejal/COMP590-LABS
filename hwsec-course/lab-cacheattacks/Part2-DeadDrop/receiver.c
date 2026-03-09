@@ -61,7 +61,7 @@ int main(int argc, char **argv)
             // PRIME: Fill our addresses for this set
             // This is EXACTLY what test_detect does
             for (int way = 0; way < L2_WAYS; way++) {
-                uint64_t offset = (variant * 65536) + (target_set * 64);
+                uint64_t offset = (target_set * 64);
                 tmp = *((char *)buf + offset);
             }
 
@@ -71,7 +71,7 @@ int main(int argc, char **argv)
             // PROBE: Measure latency
             uint64_t total_time = 0;
             for (int way = 0; way < L2_WAYS; way++) {
-                uint64_t offset = (variant * 65536) + (target_set * 64);
+                uint64_t offset = (target_set * 64);
                 uint64_t time = measure_one_block_access_time((uint64_t)buf + offset);
                 total_time += time;
             }
