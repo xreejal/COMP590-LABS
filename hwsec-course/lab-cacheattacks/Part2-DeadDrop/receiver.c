@@ -17,17 +17,16 @@ void *buf;
 struct node *sets[9];
 uint64_t thresholds[9];
 
-// RDTSCP timing
 static inline uint64_t rdtscp() {
     uint32_t lo, hi;
     asm volatile("rdtscp" : "=a"(lo), "=d"(hi) :: "rcx");
     return ((uint64_t)hi << 32) | lo;
 }
 
-// Build linked list for a set
 void build_set(int idx) {
     char *base = (char*)buf;
     struct node *prev = NULL;
+
     for(int i=0;i<L2_WAYS;i++){
         struct node *n = (struct node*)(base + (BASE_SET + idx*SET_SPACING)*64 + i*STRIDE);
         if(prev) prev->next = n;
@@ -37,7 +36,6 @@ void build_set(int idx) {
     prev->next = NULL;
 }
 
-// Traverse a set and return access time
 uint64_t traverse_set(int idx) {
     struct node *p = sets[idx];
     uint64_t t0 = rdtscp();
@@ -45,58 +43,56 @@ uint64_t traverse_set(int idx) {
     return rdtscp() - t0;
 }
 
-// Calibrate thresholds (~1.3x of average)
 void calibrate() {
     for(int i=0;i<=8;i++){
         uint64_t sum=0;
+
         for(int j=0;j<500;j++){
-            traverse_set(i); // warm-up
+            traverse_set(i);
             sum += traverse_set(i);
         }
-        thresholds[i] = (sum / 500) * 13 / 10;
+
+        thresholds[i] = (sum/500) * 13 / 10;
     }
 }
 
-// Check if set 8 is high consistently (majority of checks)
 int signal_high() {
-    int high_count = 0;
-    const int CHECKS = 5;
-    for(int i=0;i<CHECKS;i++){
-        if(traverse_set(8) > thresholds[8]) high_count++;
-        for(volatile int w=0; w<100; w++);
-    }
-    return high_count >= 3;
+    return traverse_set(8) > thresholds[8];
 }
 
-// Wait for a stable high signal on set 8
 void wait_for_start() {
-    const int REQUIRED_HIGH = 5;
-    int count = 0;
-    while(1) {
-        if(signal_high()) count++;
-        else count = 0;
-        for(volatile int w=0; w<1000; w++);
-        if(count >= REQUIRED_HIGH) return; // stable high detected
+    int consecutive = 0;
+
+    while(1){
+        if(signal_high()) consecutive++;
+        else consecutive = 0;
+
+        if(consecutive >= 20) return;
+
+        for(volatile int w=0; w<2000; w++);
     }
 }
 
-// Wait for a stable drop on set 8
 void wait_for_drop() {
-    const int REQUIRED_LOW = 5;
     int lows = 0;
-    while(lows < REQUIRED_LOW){
+
+    while(lows < 10){
         if(!signal_high()) lows++;
         else lows = 0;
+
         for(volatile int w=0; w<3000; w++);
     }
 }
 
 int main() {
+
     srand(time(NULL));
 
     buf = mmap(NULL, BUFF_SIZE, PROT_READ|PROT_WRITE,
-               MAP_POPULATE|MAP_ANONYMOUS|MAP_PRIVATE|MAP_HUGETLB,-1,0);
+        MAP_POPULATE|MAP_ANONYMOUS|MAP_PRIVATE|MAP_HUGETLB,-1,0);
+
     if(buf==(void*)-1){ perror("mmap"); exit(1); }
+
     *((char*)buf)=1;
 
     for(int i=0;i<=8;i++) build_set(i);
@@ -107,25 +103,40 @@ int main() {
     printf("Listening...\n");
 
     while(1){
-        wait_for_start(); // only start after stable high
 
-        int bits[8] = {0};
-        const int MAX_SAMPLES = 100;
+        wait_for_start();
 
-        for(int sample=0; sample<MAX_SAMPLES; sample++){
-            if(!signal_high()) continue; // skip weak/noisy periods
-            for(int b=0;b<8;b++){
-                if(traverse_set(b) > thresholds[b]) bits[b]++;
-            }
-            for(volatile int w=0; w<3000; w++);
+        int bits[8]={0};
+        int samples = 0;
+
+        const int MAX_SAMPLES = 120;
+
+        for(int s=0; s<MAX_SAMPLES; s++){
+
+            if(!signal_high()) continue;
+
+            samples++;
+
+            for(int b=0;b<8;b++)
+                if(traverse_set(b) > thresholds[b])
+                    bits[b]++;
+
+            for(volatile int w=0; w<2000; w++);
         }
 
-        int value = 0;
-        for(int b=0;b<8;b++){
-            if(bits[b] > MAX_SAMPLES/2) value |= 1<<b;
+        if(samples < 20){
+            wait_for_drop();
+            continue;
         }
-        printf("%d\n", value);
 
-        wait_for_drop(); // wait for stable drop before next byte
+        int value=0;
+
+        for(int b=0;b<8;b++)
+            if(bits[b] > samples/2)
+                value |= 1<<b;
+
+        printf("%d\n",value);
+
+        wait_for_drop();
     }
 }
