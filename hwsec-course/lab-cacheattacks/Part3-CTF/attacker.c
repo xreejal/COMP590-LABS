@@ -13,6 +13,8 @@
 
 #define REPEATS 2000
 
+#define MISS_THRESHOLD 80  // cycles, you can tune later
+
 volatile uint8_t *buf;
 volatile uint8_t *eviction_sets[NUM_L2_CACHE_SETS][WAYS];
 
@@ -103,20 +105,24 @@ int main() {
 
                 /* PROBE this set */
 
-                uint64_t latency = 0;
+                
 
-                for(int r = 0; r < 2; r++) {
+                int misses = 0;
+                uint64_t total = 0;
+
+                for(int w = WAYS - 1; w >= 0; w--) {
                     uint64_t start = rdtscp();
-
-                    for(int w = WAYS - 1; w >= 0; w--) {
-                        tmp ^= *eviction_sets[set][w];
-                    }
-
+                    tmp ^= *eviction_sets[set][w];
                     uint64_t end = rdtscp();
-                    latency += (end - start);
+                    uint64_t t = end - start;
+                    total += t;
+                    if (t > MISS_THRESHOLD) misses++;
                 }
 
-                scores[set] += latency;
+                // Only count sets that actually had misses
+                if (misses > 0) {
+                    scores[set] += total / misses;
+                }
             }
         }
         int best_set = 0;
