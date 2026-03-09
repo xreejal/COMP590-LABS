@@ -45,7 +45,7 @@ uint64_t traverse_set(int idx) {
     return rdtscp() - t0;
 }
 
-// Calibrate thresholds (avg_hit * 2)
+// Calibrate thresholds
 void calibrate() {
     for(int i=0;i<=8;i++){
         uint64_t sum=0;
@@ -54,11 +54,10 @@ void calibrate() {
             sum += traverse_set(i);
         }
         thresholds[i] = (sum/500)*2;
-        printf("Set %d threshold=%llu\n", i, (unsigned long long)thresholds[i]);
     }
 }
 
-// Check if set 8 is high
+// Check if set 8 is high (start of byte)
 int signal_high() { return traverse_set(8) > thresholds[8]; }
 
 int main() {
@@ -70,6 +69,7 @@ int main() {
     *((char*)buf)=1;
 
     for(int i=0;i<=8;i++) build_set(i);
+
     calibrate();
 
     printf("Press Enter to start.\n"); getchar();
@@ -77,7 +77,7 @@ int main() {
 
     while(1){
         // Wait for start signal (set 8 high)
-        while(!signal_high());
+        while(!signal_high()) { for(volatile int w=0;w<1000;w++); }
 
         // Byte detected, start sampling
         int bits[8]={0};
@@ -85,18 +85,14 @@ int main() {
         const int MAX_SAMPLES=120;
 
         for(sample_count=0; sample_count<MAX_SAMPLES; sample_count++){
-            // Sample all sets quickly
-            for(int i=0;i<=8;i++) traverse_set(i);
+            if(!signal_high()) break; // Stop if signal dropped
 
-            if(signal_high()){
-                // Count bit pulses
-                for(int b=0;b<8;b++)
-                    if(traverse_set(b) > thresholds[b]) bits[b]++;
-            } else {
-                break; // signal dropped early
+            // Sample each bit set
+            for(int b=0;b<8;b++){
+                if(traverse_set(b) > thresholds[b]) bits[b]++;
             }
 
-            for(volatile int wait=0; wait<3000; wait++); // small delay between samples
+            for(volatile int wait=0; wait<3000; wait++); // small delay
         }
 
         // Decode byte using majority
@@ -105,7 +101,7 @@ int main() {
             if(bits[b] > sample_count/2) value |= 1<<b;
         }
 
-        printf("Received: %d\n", value);
+        printf("%d\n", value);
 
         // Wait for signal to go low consistently before next byte
         int lows=0;
