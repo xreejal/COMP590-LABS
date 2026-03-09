@@ -25,14 +25,44 @@
 #define EV_SET_SIZE (L2_ASSOCIATIVITY + 2)
 #define SET_STRIDE (CACHE_LINE_BYTES * L2_NUM_SETS)
 
-#define MAX_MESSAGES 256
+#define DATA_SET_BASE 0
+#define NUM_BITS 8
+#define DATA_THRESHOLD 150
+#define MIN_ROUNDS_PER_SLOT 7
+#define CONFIDENCE_THRESHOLD 24
 #define PRIME_DELAY_ITERS 14000
 #define COOLDOWN_ITERS 120000000L
-#define DECODE_ROUNDS 6
-#define CONFIRMATION_COUNT 4
-#define CONFIRMATION_MARGIN 1
-#define TOP_SHOW_COUNT 5
-#define DEFAULT_THRESHOLD 150
+#define ROUND_GAP_CYCLES 10000ULL
+
+#if defined(__i386__) || defined(__x86_64__) || defined(_M_IX86) || defined(_M_X64)
+static uint64_t now_cycles(void)
+{
+    unsigned int aux = 0;
+    unsigned int lo;
+    unsigned int hi;
+
+    asm volatile("lfence\n\trdtscp"
+                 : "=a"(lo), "=d"(hi), "=c"(aux)
+                 : : "memory");
+    return ((uint64_t)hi << 32) | lo;
+}
+#else
+static uint64_t now_cycles(void)
+{
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (uint64_t)ts.tv_sec * 1000000000ull + (uint64_t)ts.tv_nsec;
+}
+#endif
+
+static inline void serialize_barrier(void)
+{
+#if defined(__i386__) || defined(__x86_64__) || defined(_M_IX86) || defined(_M_X64)
+    asm volatile("lfence" : : : "memory");
+#else
+    asm volatile("" : : : "memory");
+#endif
+}
 
 static void *allocate_channel_region(void)
 {
@@ -52,26 +82,19 @@ static void warm_up_cache_region(void *region, volatile char *probe)
 {
     ((volatile char *)region)[0] = 1;
 
-    for (uint64_t offset = 0; offset < REGION_BYTES; offset += CACHE_LINE_BYTES) {
-        *probe = ((volatile char *)region)[offset];
+    for (uint64_t line_cursor = 0; line_cursor < REGION_BYTES; line_cursor += CACHE_LINE_BYTES) {
+        *probe = ((volatile char *)region)[line_cursor];
     }
 }
 
 static void prime_set(void *region, int set_index, volatile char *probe)
 {
     volatile char *base = (volatile char *)region;
-    uint64_t base_addr = (uint64_t)base + (uint64_t)set_index * CACHE_LINE_BYTES;
+    uint64_t set_base = (uint64_t)base + (uint64_t)set_index * CACHE_LINE_BYTES;
 
     for (int way = 0; way < EV_SET_SIZE; way++) {
-        uint64_t offset = base_addr + (uint64_t)way * SET_STRIDE - (uint64_t)base;
-        *probe = base[offset];
-    }
-}
-
-static void prime_candidate_order(void *region, const int *order, volatile char *probe)
-{
-    for (int i = 0; i < MAX_MESSAGES; i++) {
-        prime_set(region, order[i], probe);
+        uint64_t addr = set_base + (uint64_t)way * SET_STRIDE;
+        *probe = base[addr - (uint64_t)base];
     }
 }
 
@@ -79,32 +102,20 @@ static uint64_t measure_set_latency(void *region, int set_index)
 {
     uint64_t total = 0;
     volatile char *base = (volatile char *)region;
-    uint64_t base_addr = (uint64_t)base + (uint64_t)set_index * CACHE_LINE_BYTES;
+    uint64_t set_base = (uint64_t)base + (uint64_t)set_index * CACHE_LINE_BYTES;
 
     for (int way = 0; way < EV_SET_SIZE; way++) {
-        uint64_t offset = base_addr + (uint64_t)way * SET_STRIDE - (uint64_t)base;
-        total += measure_one_block_access_time((uint64_t)(base + offset));
+        uint64_t addr = set_base + (uint64_t)way * SET_STRIDE;
+        total += measure_one_block_access_time((uint64_t)(base + (addr - (uint64_t)base)));
     }
 
     return total / EV_SET_SIZE;
 }
 
-static void shuffle_order(int *order, int n)
+static void delay_busy(long iters)
 {
-    for (int i = n - 1; i > 0; i--) {
-        int j = rand() % (i + 1);
-        int tmp = order[i];
-        order[i] = order[j];
-        order[j] = tmp;
+    for (volatile long i = 0; i < iters; i++) {
     }
-}
-
-static void build_candidate_order(int *order, int n)
-{
-    for (int i = 0; i < n; i++) {
-        order[i] = i;
-    }
-    shuffle_order(order, n);
 }
 
 static int read_threshold_override(void)
@@ -125,6 +136,7 @@ static int read_threshold_override(void)
     while (isspace((unsigned char)*tail)) {
         tail++;
     }
+
     if (*tail != '\0' || parsed < 1 || parsed > 10000) {
         return 0;
     }
@@ -136,39 +148,43 @@ static int calibrate_threshold(void *region, volatile char *probe)
 {
     uint64_t hit_sum = 0;
     uint64_t miss_sum = 0;
-    int rounds = 64;
+    int sample_steps = 64;
 
-    for (int i = 0; i < rounds; i++) {
-        int set = rand() % MAX_MESSAGES;
+    for (int step = 0; step < sample_steps; step++) {
+        int active_bit = rand() % NUM_BITS;
+        int tracked_set = DATA_SET_BASE + active_bit;
+        uint64_t lat;
 
-        prime_set(region, set, probe);
-        hit_sum += measure_set_latency(region, set);
+        prime_set(region, tracked_set, probe);
+        lat = measure_set_latency(region, tracked_set);
+        hit_sum += lat;
 
-        for (int other = 0; other < MAX_MESSAGES; other++) {
-            if (other == set) {
+        for (int other_bit = 0; other_bit < NUM_BITS; other_bit++) {
+            if (other_bit == active_bit) {
                 continue;
             }
-            prime_set(region, other, probe);
+            prime_set(region, DATA_SET_BASE + other_bit, probe);
         }
-        miss_sum += measure_set_latency(region, set);
+
+        miss_sum += measure_set_latency(region, tracked_set);
     }
 
     if (hit_sum == 0 || miss_sum == 0) {
-        return DEFAULT_THRESHOLD;
+        return DATA_THRESHOLD;
     }
 
-    uint64_t hit_avg = hit_sum / (uint64_t)rounds;
-    uint64_t miss_avg = miss_sum / (uint64_t)rounds;
+    uint64_t hit_avg = hit_sum / (uint64_t)sample_steps;
+    uint64_t miss_avg = miss_sum / (uint64_t)sample_steps;
     int threshold = (int)((hit_avg + miss_avg) / 2);
 
     if (threshold <= (int)hit_avg) {
         threshold = (int)hit_avg + 20;
     }
     if (threshold < 1) {
-        threshold = DEFAULT_THRESHOLD;
+        threshold = DATA_THRESHOLD;
     }
 
-    printf("Calibration: hit=%llu miss=%llu threshold=%d\n",
+    printf("Calibration: hot=%llu cold=%llu threshold=%d\n",
            (unsigned long long)hit_avg,
            (unsigned long long)miss_avg,
            threshold);
@@ -176,81 +192,13 @@ static int calibrate_threshold(void *region, volatile char *probe)
     return threshold;
 }
 
-static void print_top_hits(const int *hit_count)
+static void print_vote_status(const int *vote_scores)
 {
-    int ranked[MAX_MESSAGES];
-
-    for (int i = 0; i < MAX_MESSAGES; i++) {
-        ranked[i] = hit_count[i];
-    }
-
-    printf("Top detections: ");
-    for (int shown = 0; shown < TOP_SHOW_COUNT; shown++) {
-        int best_value = -1;
-        int best_count = 0;
-
-        for (int v = 0; v < MAX_MESSAGES; v++) {
-            if (ranked[v] > best_count) {
-                best_count = ranked[v];
-                best_value = v;
-            }
-        }
-
-        if (best_value < 0 || best_count <= 0) {
-            break;
-        }
-
-        printf("%d(cnt=%d) ", best_value, best_count);
-        ranked[best_value] = -1;
+    printf("Top bits: ");
+    for (int bit = 0; bit < NUM_BITS; bit++) {
+        printf("%d:%d ", bit, vote_scores[bit]);
     }
     printf("\n");
-}
-
-static void pick_best_and_runner_up(const int *hits, const int *avg,
-                                   int *best_out, int *best_hits_out,
-                                   int *runner_up_out, int *runner_up_hits_out)
-{
-    int best = -1;
-    int runner_up = -1;
-    int best_hits = -1;
-    int runner_up_hits = -1;
-    int best_avg = 0;
-    int runner_up_avg = 0;
-
-    for (int v = 0; v < MAX_MESSAGES; v++) {
-        int h = hits[v];
-        int a = avg[v];
-
-        if (h > best_hits || (h == best_hits && a > best_avg)) {
-            runner_up = best;
-            runner_up_hits = best_hits;
-            runner_up_avg = best_avg;
-
-            best = v;
-            best_hits = h;
-            best_avg = a;
-            continue;
-        }
-
-        if (h > runner_up_hits || (h == runner_up_hits && a > runner_up_avg)) {
-            runner_up = v;
-            runner_up_hits = h;
-            runner_up_avg = a;
-        }
-    }
-
-    *best_out = best;
-    *best_hits_out = best_hits;
-    *runner_up_out = runner_up;
-    *runner_up_hits_out = runner_up_hits;
-
-    (void)runner_up_avg;
-}
-
-static void delay_busy(long iters)
-{
-    for (volatile long i = 0; i < iters; i++) {
-    }
 }
 
 int main(int argc, char **argv)
@@ -261,14 +209,11 @@ int main(int argc, char **argv)
 
     void *region = allocate_channel_region();
     volatile char probe = 0;
+    static const int recv_pattern[NUM_BITS] = {0, 5, 2, 7, 1, 6, 3, 4};
 
-    int vote[MAX_MESSAGES] = {0};
-    int latency_sum[MAX_MESSAGES] = {0};
-    int rounds_seen = 0;
-
-    int order[MAX_MESSAGES];
-    uint64_t latencies[MAX_MESSAGES];
-    int use_threshold = 0;
+    int bit_tally[NUM_BITS] = {0};
+    int round_seen = 0;
+    int last_value = -1;
 
     srand((unsigned)time(NULL));
 
@@ -286,94 +231,60 @@ int main(int argc, char **argv)
     int threshold = read_threshold_override();
     if (threshold > 0) {
         printf("Using DEADDROP_THRESHOLD=%d\n", threshold);
-        use_threshold = 1;
     } else {
-        use_threshold = 0;
-        int calib_threshold = calibrate_threshold(region, &probe);
-        if (calib_threshold > 0) {
-            threshold = calib_threshold;
-        }
+        threshold = calibrate_threshold(region, &probe);
+        printf("Derived threshold=%d\n", threshold);
     }
 
-    printf("Receiver monitoring values 0-255 on L2 set indices.\n");
+    printf("Receiver monitoring 8-bit dead-drop slots (sets %d-%d).\n",
+           DATA_SET_BASE, DATA_SET_BASE + NUM_BITS - 1);
 
     while (1) {
-        rounds_seen++;
+        round_seen++;
+        for (int i = NUM_BITS - 1; i >= 0; i--) {
+            int scan_idx = recv_pattern[i];
+            int set_probe = DATA_SET_BASE + scan_idx;
 
-        build_candidate_order(order, MAX_MESSAGES);
-        prime_candidate_order(region, order, &probe);
+            prime_set(region, set_probe, &probe);
+            delay_busy(PRIME_DELAY_ITERS);
+            uint64_t latency = measure_set_latency(region, set_probe);
 
-        delay_busy(PRIME_DELAY_ITERS);
-
-        for (int set_index = MAX_MESSAGES - 1; set_index >= 0; set_index--) {
-            uint64_t lat = measure_set_latency(region, set_index);
-            latencies[set_index] = lat;
-            if (use_threshold && (int)lat > threshold) {
-                vote[set_index]++;
-                latency_sum[set_index] += (int)lat;
+            if ((int)latency > threshold) {
+                bit_tally[scan_idx]++;
+            } else {
+                bit_tally[scan_idx]--;
             }
         }
 
-        int best_set = 0;
-        uint64_t best_lat = latencies[0];
-        for (int i = 1; i < MAX_MESSAGES; i++) {
-            if (latencies[i] > best_lat) {
-                best_lat = latencies[i];
-                best_set = i;
+        printf("Round %d complete\n", round_seen);
+        print_vote_status(bit_tally);
+
+        if (round_seen >= MIN_ROUNDS_PER_SLOT) {
+            int decoded = 0;
+            int confidence = 0;
+
+            for (int bit = 0; bit < NUM_BITS; bit++) {
+                if (bit_tally[bit] > 0) {
+                    decoded |= 1 << bit;
+                }
+                confidence += abs(bit_tally[bit]);
+            }
+
+            if (decoded != last_value && confidence > CONFIDENCE_THRESHOLD) {
+                printf("\n>>> RECEIVED: %d (0x%02x) <<<\n\n", decoded, decoded);
+                printf("%d\n", decoded);
+                last_value = decoded;
+                round_seen = 0;
+                for (int bit = 0; bit < NUM_BITS; bit++) {
+                    bit_tally[bit] = 0;
+                }
+                delay_busy(COOLDOWN_ITERS);
             }
         }
 
-        int round_hits = 0;
-        for (int set_index = 0; set_index < MAX_MESSAGES; set_index++) {
-            if ((int)latencies[set_index] > threshold) {
-                round_hits++;
-            }
-        }
-
-        if (use_threshold) {
-            if (round_hits == 0) {
-                vote[best_set]++;
-                latency_sum[best_set] += (int)best_lat;
-            }
-        } else {
-            vote[best_set]++;
-            latency_sum[best_set] += (int)best_lat;
-        }
-
-        printf("Round %d complete\n", rounds_seen);
-
-        int avg_latency[MAX_MESSAGES];
-        for (int v = 0; v < MAX_MESSAGES; v++) {
-            avg_latency[v] = vote[v] > 0 ? (latency_sum[v] / vote[v]) : 0;
-        }
-
-        int best_cnt = 0;
-        int best_val = -1;
-        int second_val = -1;
-        int second_cnt = 0;
-        int best_avg = 0;
-
-        pick_best_and_runner_up(vote, avg_latency, &best_val, &best_cnt,
-                                &second_val, &second_cnt);
-        if (best_val >= 0) {
-            best_avg = avg_latency[best_val];
-        }
-
-        print_top_hits(vote);
-
-        if (rounds_seen >= DECODE_ROUNDS &&
-            best_cnt >= CONFIRMATION_COUNT &&
-            (best_cnt - second_cnt) >= CONFIRMATION_MARGIN) {
-            printf("\n>>> RECEIVED: %d (hits=%d/%d, avg_lat=%d) <<<\n\n",
-                   best_val, best_cnt, rounds_seen, best_avg);
-            fflush(stdout);
-
-            for (int i = 0; i < MAX_MESSAGES; i++) {
-                vote[i] = 0;
-                latency_sum[i] = 0;
-            }
-            rounds_seen = 0;
-            delay_busy(COOLDOWN_ITERS);
+        uint64_t gap_target = now_cycles() + ROUND_GAP_CYCLES;
+        while (now_cycles() < gap_target) {
+            serialize_barrier();
         }
     }
 
