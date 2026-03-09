@@ -11,85 +11,118 @@
 #define SET_SPACING 32
 #define BASE_SET 64
 
-struct node {
-    struct node *next;
-    char pad[64 - sizeof(struct node*)];
+struct node { 
+    struct node *next; 
+    char pad[64 - sizeof(struct node*)]; 
 };
 
-void *buffer;
-struct node *l2_sets[9];
+void *buf;
+struct node *sets[9];
+uint64_t thresholds[9];
 
-// Build a linked list for one set
-void create_set(int set_idx) {
-    char *base = (char*)buffer;
+// RDTSCP timer
+static inline uint64_t rdtscp() {
+    uint32_t lo, hi;
+    asm volatile("rdtscp" : "=a"(lo), "=d"(hi) :: "rcx");
+    return ((uint64_t)hi << 32) | lo;
+}
+
+// Build a linked list for a set
+void build_set(int idx) {
+    char *base = (char*)buf;
     struct node *prev = NULL;
-
-    for(int i=0; i<L2_WAYS; i++){
-        struct node *n = (struct node*)(base + (BASE_SET + set_idx*SET_SPACING)*64 + i*STRIDE);
+    for(int i=0;i<L2_WAYS;i++){
+        struct node *n = (struct node*)(base + (BASE_SET + idx*SET_SPACING)*64 + i*STRIDE);
         if(prev) prev->next = n;
-        else l2_sets[set_idx] = n;
+        else sets[idx] = n;
         prev = n;
     }
     prev->next = NULL;
 }
 
-// Traverse a set to evict its cache lines
-void evict_set(int idx){
-    struct node *curr = l2_sets[idx];
-    while(curr) curr = curr->next;
-    // Second pass for reliability
-    curr = l2_sets[idx];
-    while(curr) curr = curr->next;
+// Prime a set (traverse it)
+void prime_set(int idx) {
+    struct node *p = sets[idx];
+    while(p) p = p->next;
 }
 
-// Evict only the data bits (0–7) in random order
-void evict_data_bits_random(int value){
-    int bits[8];
-    for(int i=0;i<8;i++) bits[i] = i;
+// Probe a set and return elapsed cycles
+uint64_t probe_set(int idx) {
+    uint64_t start = rdtscp();
+    struct node *p = sets[idx];
+    while(p) p = p->next;
+    return rdtscp() - start;
+}
 
-    // Fisher-Yates shuffle
-    for(int i=7;i>0;i--){
-        int j = rand() % (i+1);
-        int tmp = bits[i]; bits[i] = bits[j]; bits[j] = tmp;
-    }
-
-    for(int i=0;i<8;i++){
-        int b = bits[i];
-        if((value >> b) & 1) evict_set(b);
+// Calibrate thresholds
+void calibrate() {
+    printf("Calibrating...\n");
+    for(int i=0;i<=8;i++){
+        uint64_t sum=0;
+        for(int j=0;j<500;j++){
+            prime_set(i);
+            sum += probe_set(i);
+        }
+        thresholds[i] = (sum/500) * 2; // safer factor
+        printf("Set %d threshold = %lu\n", i, thresholds[i]);
     }
 }
 
 int main() {
     srand(time(NULL));
 
-    buffer = mmap(NULL, BUFF_SIZE, PROT_READ|PROT_WRITE,
-                  MAP_POPULATE|MAP_ANONYMOUS|MAP_PRIVATE|MAP_HUGETLB, -1, 0);
+    buf = mmap(NULL, BUFF_SIZE, PROT_READ|PROT_WRITE,
+               MAP_POPULATE|MAP_ANONYMOUS|MAP_PRIVATE|MAP_HUGETLB,-1,0);
+    if(buf==(void*)-1){ perror("mmap"); exit(1); }
+    *((char*)buf)=1;
 
-    if(buffer==(void*)-1){ perror("mmap"); exit(1); }
+    for(int i=0;i<=8;i++) build_set(i);
+    calibrate();
 
-    *((char*)buffer) = 1;
+    printf("Please press enter.\n");
+    getchar();
+    printf("Receiver listening...\n");
 
-    for(int i=0;i<=8;i++) create_set(i);
+    while(1){
+        // Detect signal on set 8
+        prime_set(8);
+        for(volatile int w=0; w<2500; w++);  // slightly longer wait
+        if(probe_set(8) > thresholds[8]){
+            int bits[8] = {0};
+            int valid_samples = 0;
+            const int samples = 100;
 
-    printf("Sender ready.\n");
+            for(int s=0;s<samples;s++){
+                // Prime all
+                for(int i=0;i<=8;i++) prime_set(i);
+                for(volatile int w=0; w<6000; w++); // longer delay for stabilization
 
-    char line[128];
-    while(fgets(line,sizeof(line),stdin)){
-        int value = atoi(line);
-        if(value<0 || value>255){ 
-            printf("Enter a value between 0 and 255\n"); 
-            continue; 
+                // Probe
+                if(probe_set(8) > thresholds[8]){
+                    valid_samples++;
+                    for(int i=0;i<8;i++){
+                        if(probe_set(i) > thresholds[i]) bits[i]++;
+                    }
+                }
+            }
+
+            if(valid_samples > samples/2){
+                int value=0;
+                for(int i=0;i<8;i++){
+                    if(bits[i] > valid_samples*0.7) value |= (1<<i); // lower threshold to 70%
+                }
+                printf("%d\n", value);
+            }
+
+            // Wait until signal consistently drops
+            int lows=0;
+            while(lows<12){ // more consecutive lows required
+                prime_set(8);
+                for(volatile int w=0; w<6000; w++);
+                if(probe_set(8) < thresholds[8]) lows++;
+                else lows=0;
+            }
         }
-
-        printf("Sending %d\n", value);
-
-        long iterations = 2000000;
-        while(iterations--){
-            evict_set(8);             // Valid bit
-            evict_data_bits_random(value); // Data bits
-        }
-
-        printf("Sent.\n");
     }
 
     return 0;
