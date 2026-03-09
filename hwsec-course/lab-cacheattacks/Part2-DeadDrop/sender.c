@@ -1,131 +1,118 @@
 #include "util.h"
 #include <sys/mman.h>
-
-#include <ctype.h>
-#include <errno.h>
-#include <stdio.h>
 #include <stdlib.h>
+#include <stdio.h>
+#include <stdint.h>
 #include <time.h>
 
-#ifndef MAP_POPULATE
-#define MAP_POPULATE 0
-#endif
+#define BUFF_SIZE (1<<21)
+#define L2_WAYS 16
+#define STRIDE (1<<16)
 
-#ifndef MAP_ANONYMOUS
-#define MAP_ANONYMOUS MAP_ANON
-#endif
+#define SET_SPACING 32
+#define BASE_SET 64
 
-#ifndef MAP_HUGETLB
-#define MAP_HUGETLB 0
-#endif
+struct node {
+    struct node *next;
+    char pad[64 - sizeof(struct node*)];
+};
 
-#define REGION_BYTES (2ULL * 1024ULL * 1024ULL)
-#define CACHE_LINE_BYTES 64ULL
-#define L2_NUM_SETS 1024
-#define L2_ASSOCIATIVITY 4
-#define EV_SET_SIZE (L2_ASSOCIATIVITY + 2)
-#define SET_STRIDE (CACHE_LINE_BYTES * L2_NUM_SETS)
-#define INPUT_SIZE 128
+void *buf;
+struct node *sets[9];
 
-static void *allocate_channel_region(void)
-{
-    void *region = mmap(NULL, REGION_BYTES, PROT_READ | PROT_WRITE,
-                        MAP_POPULATE | MAP_ANONYMOUS | MAP_PRIVATE | MAP_HUGETLB,
-                        -1, 0);
-
-    if (region == (void *)-1) {
-        perror("mmap() error");
-        exit(EXIT_FAILURE);
-    }
-
-    return region;
-}
-
-static void warm_up_channel(void *region, volatile char *sink)
-{
-    ((volatile char *)region)[0] = 1;
-
-    for (unsigned long i = 0; i < REGION_BYTES; i += CACHE_LINE_BYTES) {
-        *sink = ((volatile char *)region)[i];
+void shuffle(struct node **array, int n) {
+    for (int i=n-1;i>0;i--) {
+        int j = rand()%(i+1);
+        struct node *tmp = array[i];
+        array[i] = array[j];
+        array[j] = tmp;
     }
 }
 
-static int parse_input_value(const char *line, int *out)
-{
-    while (line && isspace((unsigned char)*line)) {
-        line++;
+void build_set(int idx) {
+    char *base = (char*)buf;
+    struct node *nodes[L2_WAYS];
+
+    int phys = BASE_SET + idx * SET_SPACING;
+
+    for (int i=0;i<L2_WAYS;i++) {
+        nodes[i] = (struct node*)(base + phys*64 + i*STRIDE);
     }
 
-    if (!line || *line == '\0') {
-        return 0;
-    }
+    shuffle(nodes, L2_WAYS);
 
-    errno = 0;
-    char *tail = NULL;
-    long parsed = strtol(line, &tail, 10);
+    for (int i=0;i<L2_WAYS-1;i++)
+        nodes[i]->next = nodes[i+1];
 
-    if (tail == line || errno != 0) {
-        return 0;
-    }
+    nodes[L2_WAYS-1]->next = NULL;
 
-    while (isspace((unsigned char)*tail)) {
-        tail++;
-    }
-    if (*tail != '\0' || parsed < 0 || parsed > 255) {
-        return 0;
-    }
-
-    *out = (int)parsed;
-    return 1;
+    sets[idx] = nodes[0];
 }
 
-static void hammer_set(void *region, int set_index, volatile char *sink)
-{
-    const uint64_t base = (uint64_t)region;
-    while (1) {
-        for (int way = 0; way < EV_SET_SIZE; way++) {
-            uint64_t offset = (uint64_t)set_index * CACHE_LINE_BYTES + (uint64_t)way * SET_STRIDE;
-            *sink = ((volatile char *)(base + offset))[0];
-        }
-    }
+void evict_set(int idx) {
+    struct node *p = sets[idx];
+
+    while (p)
+        p = p->next;
+
+    // second pass for stronger eviction
+    p = sets[idx];
+    while (p)
+        p = p->next;
 }
 
-int main(int argc, char **argv)
-{
-    (void)argc;
-    (void)argv;
-    setvbuf(stdout, NULL, _IOLBF, 0);
+int main() {
 
-    void *region = allocate_channel_region();
-    volatile char sink = 0;
+    srand(time(NULL));
 
-    warm_up_channel(region, &sink);
+    buf = mmap(NULL, BUFF_SIZE, PROT_READ|PROT_WRITE,
+        MAP_POPULATE|MAP_ANONYMOUS|MAP_PRIVATE|MAP_HUGETLB, -1, 0);
 
-    printf("DeadDrop sender ready.\n");
-    printf("Type an integer [0,255]. Ctrl-D to stop.\n");
+    if (buf == (void*)-1) {
+        perror("mmap");
+        exit(1);
+    }
+
+    *((char*)buf) = 1;
+
+    // Build sets for bits + valid
+    for (int i=0;i<=8;i++)
+        build_set(i);
+
+    printf("Sender ready. Please type a message.\n");
 
     while (1) {
-        char line[INPUT_SIZE];
 
-        if (!fgets(line, sizeof(line), stdin)) {
-            printf("No input. Exiting.\n");
+        char text_buf[128];
+
+        if (!fgets(text_buf,sizeof(text_buf),stdin))
             break;
-        }
 
-        int value = 0;
-        if (!parse_input_value(line, &value)) {
-            printf("Invalid input. Enter one integer between 0 and 255.\n");
+        int value = atoi(text_buf);
+
+        if (value < 0 || value > 255) {
+            printf("Enter value 0-255\n");
             continue;
         }
 
-        int set_index = value;
-        printf("Sending value=%d mapped to set=%d.\n", value, set_index);
-        printf("Press Ctrl+C when receiver confirms.\n");
+        printf("Sending %d\n", value);
 
-        hammer_set(region, set_index, &sink);
-        printf("Done sending %d.\n", value);
+        long duration = 2000000;
+
+        for (long k=0;k<duration;k++) {
+
+            // VALID signal
+            evict_set(8);
+
+            // send bits
+            for (int i=0;i<8;i++) {
+                if ((value >> i) & 1)
+                    evict_set(i);
+            }
+        }
+
+        printf("Sent.\n");
     }
 
-    munmap(region, REGION_BYTES);
     return 0;
 }
