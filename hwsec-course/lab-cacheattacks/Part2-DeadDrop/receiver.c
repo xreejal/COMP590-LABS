@@ -107,8 +107,6 @@ int detect_signal() {
             consecutive_high++;
 
             if(consecutive_high >= required_high) {
-                printf("[DEBUG] Signal detected after %d high slots\n", consecutive_high);
-                fflush(stdout);
                 return 1;
             }
         } else {
@@ -144,12 +142,16 @@ int main() {
     printf("Receiver now listening.\n");
 
     while(1){
+
         if(detect_signal()){
+
+            // wait for sync burst to finish
+            for(volatile int i=0;i<200000;i++);
+
             int value = receive_byte();
+
             printf("[DEBUG] Received byte: %d\n", value);
             fflush(stdout);
-        } else {
-            for(volatile int i=0;i<1000;i++);
         }
     }
 

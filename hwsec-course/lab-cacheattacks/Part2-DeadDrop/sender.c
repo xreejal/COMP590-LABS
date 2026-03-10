@@ -35,7 +35,7 @@ void evict_set(){
 
 void send_bit(int bit){
     if(bit){
-        for(int i=0;i<200;i++)
+        for(int i=0;i<500;i++)
             evict_set();
     }
     delay();
