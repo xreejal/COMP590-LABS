@@ -5,95 +5,153 @@
 #include <stdint.h>
 #include <time.h>
 
-#define BUFF_SIZE (1<<21)
-#define L2_WAYS 16
+#define BUF_SZ (1<<21)
+#define L2_ASSOC 16
 #define STRIDE (1<<16)
-#define SET_SPACING 32
-#define BASE_SET 64
+#define SET_STEP 32
+#define START_SET 64
 
-struct node { struct node *next; char pad[64 - sizeof(struct node*)]; };
+typedef struct entry {
+    struct entry *next;
+    char filler[64 - sizeof(struct entry*)];
+} entry;
 
-void *buf;
-struct node *sets[9];
-uint64_t thresholds[9];
+void *region;
+entry *set_heads[9];
+uint64_t cutoffs[9];
 
-static inline uint64_t rdtscp() {
-    uint32_t lo, hi;
-    asm volatile("rdtscp" : "=a"(lo), "=d"(hi)::"rcx");
+static inline uint64_t get_cycles(){
+    uint32_t lo,hi;
+    asm volatile("rdtscp":"=a"(lo),"=d"(hi)::"rcx");
     return ((uint64_t)hi<<32)|lo;
 }
 
-// Build a set with L2_WAYS nodes
-void build_set(int idx) {
-    char *base = (char*)buf;
-    struct node *prev = NULL;
-    for (int i = 0; i < L2_WAYS; i++) {
-        struct node *n = (struct node*)(base + (BASE_SET + idx*SET_SPACING)*64 + i*STRIDE);
-        if (prev) prev->next = n;
-        else sets[idx] = n;
-        prev = n;
+void init_set(int idx){
+    char *base = (char*)region;
+    entry *last = NULL;
+
+    for(int i=0;i<L2_ASSOC;i++){
+        entry *node = (entry*)(base + (START_SET + idx*SET_STEP)*64 + i*STRIDE);
+
+        if(last) last->next = node;
+        else set_heads[idx] = node;
+
+        last = node;
     }
-    prev->next = NULL;
+
+    last->next = NULL;
 }
 
-// Prime a set
-void prime_set(int idx) { struct node *p = sets[idx]; while(p) p = p->next; }
-
-// Probe a set and return access time
-uint64_t probe_set(int idx) {
-    uint64_t start = rdtscp();
-    struct node *p = sets[idx]; while(p) p = p->next;
-    return rdtscp()-start;
+void warmup(int idx){
+    entry *p = set_heads[idx];
+    while(p) p = p->next;
 }
 
-// Simple threshold calibration
-void calibrate() {
-    for(int i=0;i<=8;i++){
-        uint64_t sum=0;
-        for(int j=0;j<1000;j++){ prime_set(i); sum+=probe_set(i); }
-        thresholds[i] = sum/1000*2;
+uint64_t measure(int idx){
+    uint64_t start = get_cycles();
+
+    entry *p = set_heads[idx];
+    while(p) p = p->next;
+
+    return get_cycles() - start;
+}
+
+void determine_thresholds(){
+    for(int s=0;s<9;s++){
+
+        uint64_t total = 0;
+
+        for(int i=0;i<800;i++){
+            warmup(s);
+            total += measure(s);
+        }
+
+        uint64_t avg = total/800;
+
+        cutoffs[s] = avg * 2;
     }
 }
 
-int main() {
+int main(){
+
     srand(time(NULL));
 
-    buf = mmap(NULL, BUFF_SIZE, PROT_READ|PROT_WRITE,
-        MAP_POPULATE|MAP_ANONYMOUS|MAP_PRIVATE|MAP_HUGETLB,-1,0);
-    if(buf==(void*)-1){ perror("mmap"); exit(1); }
-    *((char*)buf)=1;
+    region = mmap(NULL, BUF_SZ,
+        PROT_READ|PROT_WRITE,
+        MAP_POPULATE|MAP_ANONYMOUS|MAP_PRIVATE|MAP_HUGETLB,
+        -1,0);
 
-    for(int i=0;i<=8;i++) build_set(i);
-    calibrate();
+    if(region==(void*)-1){
+        perror("mmap");
+        exit(1);
+    }
 
-    printf("Press enter to start.\n"); getchar();
-    printf("Receiver listening...\n");
+    *((char*)region)=1;
+
+    for(int i=0;i<9;i++)
+        init_set(i);
+
+    determine_thresholds();
+
+    printf("Press enter to start listening\n");
+    getchar();
+
+    printf("Receiver active\n");
 
     while(1){
-        prime_set(8);
-        for(volatile int i=0;i<2000;i++);
-        if(probe_set(8) > thresholds[8]){
-            int bits[8]={0}, valid=0, samples=100;
-            for(int s=0;s<samples;s++){
-                for(int i=0;i<=8;i++) prime_set(i);
-                for(volatile int k=0;k<5000;k++);
-                if(probe_set(8) > thresholds[8]){
-                    valid++;
-                    for(int i=0;i<8;i++)
-                        if(probe_set(i)>thresholds[i]) bits[i]++;
+
+        warmup(8);
+
+        for(volatile int w=0; w<2000; w++);
+
+        if(measure(8) > cutoffs[8]){
+
+            int bit_votes[8]={0};
+            int active_samples = 0;
+            int attempts = 120;
+
+            for(int s=0;s<attempts;s++){
+
+                for(int j=0;j<9;j++)
+                    warmup(j);
+
+                for(volatile int delay=0; delay<5000; delay++);
+
+                if(measure(8) > cutoffs[8]){
+
+                    active_samples++;
+
+                    for(int b=0;b<8;b++){
+                        if(measure(b) > cutoffs[b])
+                            bit_votes[b]++;
+                    }
                 }
             }
-            if(valid>samples/2){
-                int val=0;
-                for(int i=0;i<8;i++) if(bits[i]>valid*0.75) val|=1<<i;
-                printf("%d\n",val);
+
+            if(active_samples > attempts/2){
+
+                int decoded = 0;
+
+                for(int b=0;b<8;b++){
+                    if(bit_votes[b] > active_samples*0.7)
+                        decoded |= (1<<b);
+                }
+
+                printf("%d\n",decoded);
             }
 
-            int lows=0;
-            while(lows<10){
-                prime_set(8);
-                for(volatile int i=0;i<5000;i++);
-                if(probe_set(8)<thresholds[8]) lows++; else lows=0;
+            int quiet=0;
+
+            while(quiet<10){
+
+                warmup(8);
+
+                for(volatile int d=0; d<5000; d++);
+
+                if(measure(8) < cutoffs[8])
+                    quiet++;
+                else
+                    quiet=0;
             }
         }
     }

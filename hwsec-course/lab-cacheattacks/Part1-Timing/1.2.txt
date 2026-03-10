@@ -1,0 +1,29 @@
+
+
+Cache Line Size
+Total Size 
+Number of Ways (Associativity) 
+
+
+Number of Sets 
+(total size/(line size*associativity))
+Raw Latency
+L1
+64 bytes
+32 Kib 
+8
+64
+4 cycles
+L2
+64 bytes
+1 MiB
+16
+1024
+12
+L3
+64 bytes
+11MiB
+11
+16,384
+42
+
