@@ -23,6 +23,9 @@ void build_set(){
     char *base = (char*)buf;
     for(int i=0;i<L2_WAYS;i++)
         set_addrs[i] = base + TARGET_SET*64 + i*STRIDE;
+    
+    // Add signal set (set 8) at an offset
+    set_addrs[8] = base + (TARGET_SET+1)*64 + 0*STRIDE;
 }
 
 void evict_set(){
@@ -38,21 +41,38 @@ void send_bit(int bit){
     delay();
 }
 
-void send_byte(int value){
-    printf("[DEBUG] Sending byte: %d\n", value);
-    fflush(stdout);
-    for(int i=0;i<8;i++){
-        int bit = (value >> i) & 1;
-        send_bit(bit);
-    }
-    printf("[DEBUG] Byte %d sent successfully\n", value);
+// Evict signal set to indicate start of byte
+void send_sync(){
+    for(int i=0;i<5000;i++)  // adjust duration as needed
+        *(volatile char*)set_addrs[8]; // set 8 = sync set
+    printf("[DEBUG] Sent sync signal\n");
     fflush(stdout);
 }
 
-void send_sync(){
-    for(int i=0;i<300000;i++)
-        evict_set();
-    printf("[DEBUG] Sent sync signal\n");
+// Send a single bit using eviction of the corresponding set
+void send_bit(int bit, int set_index){
+    if(bit){
+        for(int i=0;i<2000;i++)  // strong eviction for reliability
+            *(volatile char*)set_addrs[set_index];
+    }
+    delay();
+}
+
+// Send a byte (sets 0-7 = data, 8 = signal)
+void send_byte(int value){
+    printf("[DEBUG] Sending byte: %d\n", value);
+    fflush(stdout);
+
+    // 1. Signal start
+    send_sync();
+
+    // 2. Send data bits
+    for(int i=0;i<8;i++){
+        int bit = (value >> i) & 1;
+        send_bit(bit, i);
+    }
+
+    printf("[DEBUG] Byte %d sent successfully\n", value);
     fflush(stdout);
 }
 

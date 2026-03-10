@@ -9,130 +9,136 @@
 #define L2_WAYS 16
 #define STRIDE (1<<16)
 
-#define TARGET_SET 128
-#define SLOT_DELAY 4000  // keep aligned with sender
+#define DATA_SETS 8       // sets 0-7 carry bits
+#define SIGNAL_SET 8      // set 8 for sync
+#define SLOT_DELAY 4000
 
 void *buf;
-char *set_addrs[L2_WAYS];
+char *sets[DATA_SETS + 1];  // pointers to each set
+uint64_t thresholds[DATA_SETS + 1]; // per-set thresholds
 
-uint64_t threshold = 0; // can manually set if needed
-
-static inline uint64_t rdtscp() {
-    uint32_t lo, hi;
+static inline uint64_t rdtscp(){
+    uint32_t lo,hi;
     asm volatile("rdtscp" : "=a"(lo), "=d"(hi)::"rcx");
-    return ((uint64_t)hi << 32) | lo;
+    return ((uint64_t)hi<<32)|lo;
 }
 
-static inline void delay() {
+static inline void delay(){
     for(volatile int i=0;i<SLOT_DELAY;i++);
 }
 
-void build_set() {
+void build_sets(){
     char *base = (char*)buf;
-    for(int i=0;i<L2_WAYS;i++){
-        set_addrs[i] = base + TARGET_SET*64 + i*STRIDE;
+    for(int s=0; s<=DATA_SETS; s++){
+        sets[s] = base + (64*64) + s*STRIDE;  // start + s*stride
     }
 }
 
-void prime_set() {
+void prime_set(int s){
     for(int i=0;i<L2_WAYS;i++)
-        *(volatile char*)set_addrs[i];
+        *(volatile char*)(sets[s] + i*STRIDE);
 }
 
-uint64_t probe_set() {
+uint64_t probe_set(int s){
     uint64_t start = rdtscp();
     for(int i=L2_WAYS-1;i>=0;i--)
-        *(volatile char*)set_addrs[i];
+        *(volatile char*)(sets[s] + i*STRIDE);
     return rdtscp() - start;
 }
 
-// Improved calibration with optional manual threshold
-void calibrate(int use_manual, uint64_t manual_threshold) {
-    if(use_manual) {
-        threshold = manual_threshold;
-        printf("Manual threshold set: %llu\n", (unsigned long long)threshold);
-        return;
+// Simple per-set calibration (manual or automatic)
+void calibrate(uint64_t manual_threshold){
+    for(int s=0; s<=DATA_SETS; s++){
+        if(manual_threshold>0){
+            thresholds[s] = manual_threshold;
+        } else {
+            uint64_t sum=0;
+            for(int k=0;k<500;k++){
+                prime_set(s);
+                sum += probe_set(s);
+            }
+            thresholds[s] = sum/500 * 2; // safe margin
+        }
+        printf("Set %d threshold: %llu\n", s, (unsigned long long)thresholds[s]);
     }
-
-    uint64_t min_t = UINT64_MAX;
-    uint64_t max_t = 0;
-    int samples = 1000;
-
-    for(int i=0;i<samples;i++){
-        prime_set();
-        uint64_t t = probe_set();
-        if(t < min_t) min_t = t;
-        if(t > max_t) max_t = t;
-    }
-
-    threshold = min_t + (max_t - min_t)/2;
-    printf("Calibrated threshold: %llu (min=%llu, max=%llu)\n",
-           (unsigned long long)threshold,
-           (unsigned long long)min_t,
-           (unsigned long long)max_t);
 }
 
-// receive one bit, no debug flood
-int receive_bit() {
-    prime_set();
-    delay();
-    uint64_t t = probe_set();
-    return t > threshold ? 1 : 0;
-}
+// Receive one byte with multi-sample voting
+int receive_byte(){
+    int bit_counts[DATA_SETS] = {0};
+    int samples = 50;
+    int valid_samples = 0;
 
-int receive_byte() {
-    int value = 0;
-    for(int i=0;i<8;i++){
-        int bit = receive_bit();
-        value |= (bit << i);
+    for(int s=0; s<samples; s++){
+        // Prime all sets
+        for(int d=0; d<=DATA_SETS; d++) prime_set(d);
+        delay();
+
+        uint64_t t_signal = probe_set(SIGNAL_SET);
+        if(t_signal > thresholds[SIGNAL_SET]){
+            valid_samples++;
+            for(int d=0; d<DATA_SETS; d++){
+                if(probe_set(d) > thresholds[d]){
+                    bit_counts[d]++;
+                }
+            }
+        }
     }
+
+    int value=0;
+    for(int d=0; d<DATA_SETS; d++){
+        if(bit_counts[d] > (valid_samples*0.7))  // >70% voting
+            value |= (1<<d);
+    }
+
     return value;
 }
 
-int detect_signal() {
-    int consecutive_high = 0;
-    int required_high = 25;  // increased for noise robustness
-    int max_checks = 5000;
-
-    for(int i=0;i<max_checks;i++){
-        prime_set();
+// Wait for signal to appear (sync)
+void wait_for_signal(){
+    while(1){
+        prime_set(SIGNAL_SET);
         delay();
-        if(probe_set() > threshold){
-            consecutive_high++;
-            if(consecutive_high >= required_high)
-                return 1;
-        } else {
-            consecutive_high = 0;
-        }
+        if(probe_set(SIGNAL_SET) > thresholds[SIGNAL_SET])
+            break;
     }
-    return 0;
 }
 
-int main() {
+int main(int argc, char **argv){
     srand(time(NULL));
+
+    uint64_t manual_threshold = 0;
+    if(argc>1)
+        manual_threshold = strtoull(argv[1], NULL, 10);
 
     buf = mmap(NULL, BUFF_SIZE, PROT_READ|PROT_WRITE,
                MAP_POPULATE|MAP_ANONYMOUS|MAP_PRIVATE|MAP_HUGETLB,
                -1,0);
-    if(buf == (void*)-1){ perror("mmap"); exit(1); }
+    if(buf==(void*)-1){ perror("mmap"); exit(1); }
     *((char*)buf)=1;
 
-    build_set();
-
-    // either calibrate automatically or set manual threshold (e.g., 240)
-    calibrate(1, 240);  
+    build_sets();
+    calibrate(manual_threshold);
 
     printf("Press enter to start receiver.\n");
     getchar();
-    printf("Receiver now listening.\n");
+    printf("Receiver listening...\n");
 
     while(1){
-        if(detect_signal()){
-            // wait for sender burst to finish
-            for(volatile int i=0;i<500000;i++);
-            int value = receive_byte();
-            printf("[DEBUG] Received byte: %d\n", value);
-            fflush(stdout);
+        wait_for_signal();
+        int value = receive_byte();
+        printf("[DEBUG] Received byte: %d\n", value);
+        fflush(stdout);
+
+        // Wait until signal drops to avoid double counting
+        int lows=0;
+        while(lows<10){
+            prime_set(SIGNAL_SET);
+            delay();
+            if(probe_set(SIGNAL_SET) < thresholds[SIGNAL_SET])
+                lows++;
+            else
+                lows=0;
         }
     }
 
