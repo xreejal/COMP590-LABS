@@ -49,26 +49,22 @@ uint64_t probe_set(int s){
 void calibrate(uint64_t manual_threshold){
     for(int s=0; s<=DATA_SETS; s++){
 
-        if(manual_threshold){
-            thresholds[s] = manual_threshold;
-            continue;
-        }
-
         uint64_t hit=0, miss=0;
 
-        for(int i=0;i<500;i++){
+        for(int i=0;i<1000;i++){
             prime_set(s);
             hit += probe_set(s);
         }
 
-        for(int i=0;i<500;i++){
+        for(int i=0;i<1000;i++){
             miss += probe_set(s);
         }
 
-        hit /= 500;
-        miss /= 500;
+        hit /= 1000;
+        miss /= 1000;
 
         thresholds[s] = (hit + miss) / 2;
+    }
 
         printf("Set %d threshold: %llu (hit=%llu miss=%llu)\n",
             s,
@@ -139,22 +135,34 @@ int main(int argc, char **argv){
     printf("Receiver listening...\n");
 
     while(1){
-        wait_for_signal();
-        int value = receive_byte();
-        printf("[DEBUG] Received byte: %d\n", value);
-        fflush(stdout);
 
-        // Wait until signal drops to avoid double counting
-        int lows=0;
-        while(lows<10){
-            prime_set(SIGNAL_SET);
-            delay();
-            if(probe_set(SIGNAL_SET) < thresholds[SIGNAL_SET])
-                lows++;
-            else
-                lows=0;
+    /* WAIT FOR SYNC */
+    while(1){
+        prime_set(SIGNAL_SET);
+        delay();
+        uint64_t t = probe_set(SIGNAL_SET);
+
+        if(t > thresholds[SIGNAL_SET]) {
+            break;   // sync detected
         }
     }
+
+    int value = 0;
+
+    /* RECEIVE 8 BITS */
+    for(int i=0;i<8;i++){
+
+        prime_set(i);
+        delay();
+
+        uint64_t t = probe_set(i);
+
+        if(t > thresholds[i])
+            value |= (1 << i);
+    }
+
+    printf("[DEBUG] Received byte: %d\n", value);
+}
 
     return 0;
 }
