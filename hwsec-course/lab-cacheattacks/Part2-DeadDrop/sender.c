@@ -55,7 +55,8 @@ void send_byte(int value){
 }
 
 void send_sync(){
-    for(int i=0;i<50000;i++)
+
+    for(int i=0;i<300000;i++)
         evict_set();
 
     printf("[DEBUG] Sent sync signal\n");

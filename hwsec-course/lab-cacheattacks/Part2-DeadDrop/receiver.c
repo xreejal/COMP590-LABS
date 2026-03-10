@@ -96,7 +96,7 @@ int receive_byte(){
 
 int detect_signal() {
     int consecutive_high = 0;
-    int required_high = 25;  // match sender burst better
+    int required_high = 15;  // match sender burst better
     int max_checks = 5000;   // scan longer to catch short bursts
 
     for(int i=0;i<max_checks;i++){
@@ -105,11 +105,6 @@ int detect_signal() {
 
         if(probe_set() > threshold){
             consecutive_high++;
-            // debug: print first few high probes
-            if(consecutive_high <= 5) {
-                printf("[DEBUG] High probe slot %d\n", consecutive_high);
-                fflush(stdout);
-            }
 
             if(consecutive_high >= required_high) {
                 printf("[DEBUG] Signal detected after %d high slots\n", consecutive_high);
