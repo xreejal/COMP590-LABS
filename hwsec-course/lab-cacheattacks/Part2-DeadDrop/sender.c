@@ -21,7 +21,6 @@ static inline void delay() {
 
 void build_set() {
     char *base = (char*)buf;
-
     for(int i=0;i<L2_WAYS;i++){
         set_addrs[i] = base + TARGET_SET*64 + i*STRIDE;
     }
@@ -49,9 +48,10 @@ void send_byte(int value){
 }
 
 void send_sync(){
-
-    for(int i=0;i<50000;i++)
+    // Make sync slightly shorter than before to avoid receiver missing it
+    for(int i=0;i<20000;i++)
         evict_set();
+    printf("[DEBUG] Sent sync signal\n");
 }
 
 int main(){
@@ -71,7 +71,7 @@ int main(){
 
     build_set();
 
-    printf("Please type a message.\n");
+    printf("Please type a message (0-255 per line).\n");
 
     char line[128];
 
@@ -81,12 +81,19 @@ int main(){
 
         if(value < 0 || value > 255){
             printf("Enter value 0-255\n");
+            fflush(stdout);
             continue;
         }
 
-        send_sync();      // start-of-message signal
-        send_byte(value); // send the data
-    }
+        send_sync();           
+        printf("[DEBUG] Sent sync signal\n");
+        fflush(stdout);
+
+        printf("[DEBUG] Sending byte: %d\n", value);
+        fflush(stdout);
+
+        send_byte(value);      
+}
 
     return 0;
 }
