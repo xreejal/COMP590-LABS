@@ -28,19 +28,17 @@ void build_sets(){
     }
 }
 
-// Send a single bit by evicting its corresponding set
 void send_bit(int bit, int set_index){
     if(bit){
-        for(int i=0;i<2000;i++)
+        for(int i=0;i<L2_WAYS;i++)   // <- only 16 ways
             *(volatile char*)(sets[set_index] + i*STRIDE);
     }
     delay();
 }
 
-// Send sync signal
 void send_sync(){
-    for(int i=0;i<20000;i++)
-        *(volatile char*)(sets[SIGNAL_SET] + i*STRIDE);
+    for(int i=0;i<L2_WAYS*100;i++)  // small repeated eviction for signal
+        *(volatile char*)(sets[SIGNAL_SET] + (i % L2_WAYS)*STRIDE);
     printf("[DEBUG] Sent sync signal\n");
     fflush(stdout);
 }
