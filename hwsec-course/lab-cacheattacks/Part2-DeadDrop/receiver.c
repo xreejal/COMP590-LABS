@@ -64,8 +64,8 @@ void calibrate(uint64_t manual_threshold){
         miss /= 1000;
 
         thresholds[s] = (hit + miss) / 2;
-    }
 
+        // <-- print INSIDE the loop
         printf("Set %d threshold: %llu (hit=%llu miss=%llu)\n",
             s,
             (unsigned long long)thresholds[s],
