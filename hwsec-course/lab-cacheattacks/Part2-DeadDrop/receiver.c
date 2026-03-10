@@ -62,7 +62,7 @@ void calibrate() {
     }
 
     uint64_t avg = sum / samples;
-    threshold = avg * 2; // 50% higher than average idle
+    threshold = avg + (avg / 2);   // 50% above idle // 50% higher than average idle
     printf("Calibrated threshold: %llu\n", (unsigned long long)threshold);
 }
 
