@@ -39,8 +39,8 @@ void send_bit(int bit, int set_index){
 
 // Evict signal set to indicate start of byte
 void send_sync(){
-    for(int i=0;i<5000;i++)  // adjust duration as needed
-        *(volatile char*)set_addrs[8]; // set 8 = sync set
+    for(int i=0;i<20000;i++)  // longer signal for receiver alignment
+        *(volatile char*)set_addrs[8];
     printf("[DEBUG] Sent sync signal\n");
     fflush(stdout);
 }
@@ -50,10 +50,8 @@ void send_byte(int value){
     printf("[DEBUG] Sending byte: %d\n", value);
     fflush(stdout);
 
-    // 1. Signal start
     send_sync();
 
-    // 2. Send data bits
     for(int i=0;i<8;i++){
         int bit = (value >> i) & 1;
         send_bit(bit, i);
@@ -61,6 +59,9 @@ void send_byte(int value){
 
     printf("[DEBUG] Byte %d sent successfully\n", value);
     fflush(stdout);
+
+    // short pause to avoid overlap
+    for(int i=0;i<50000;i++) delay();
 }
 
 int main(){
