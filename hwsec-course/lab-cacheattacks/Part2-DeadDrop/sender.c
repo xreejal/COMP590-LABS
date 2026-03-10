@@ -13,7 +13,7 @@
 #define SLOT_DELAY 4000
 
 void *buf;
-char *set_addrs[L2_WAYS];
+char *set_addrs[L2_WAYS+1]; // +1 for signal set
 
 static inline void delay(){
     for(volatile int i=0;i<SLOT_DELAY;i++);
@@ -28,15 +28,11 @@ void build_set(){
     set_addrs[8] = base + (TARGET_SET+1)*64 + 0*STRIDE;
 }
 
-void evict_set(){
-    for(int i=0;i<L2_WAYS;i++)
-        *(volatile char*)set_addrs[i];
-}
-
-void send_bit(int bit){
+// Send a single bit using eviction of the corresponding set
+void send_bit(int bit, int set_index){
     if(bit){
-        for(int i=0;i<2000;i++)  // stronger eviction burst
-            evict_set();
+        for(int i=0;i<2000;i++)  // strong eviction for reliability
+            *(volatile char*)set_addrs[set_index];
     }
     delay();
 }
@@ -47,15 +43,6 @@ void send_sync(){
         *(volatile char*)set_addrs[8]; // set 8 = sync set
     printf("[DEBUG] Sent sync signal\n");
     fflush(stdout);
-}
-
-// Send a single bit using eviction of the corresponding set
-void send_bit(int bit, int set_index){
-    if(bit){
-        for(int i=0;i<2000;i++)  // strong eviction for reliability
-            *(volatile char*)set_addrs[set_index];
-    }
-    delay();
 }
 
 // Send a byte (sets 0-7 = data, 8 = signal)
@@ -94,7 +81,6 @@ int main(){
         int value = atoi(line);
         if(value<0 || value>255){ printf("Enter 0-255\n"); continue; }
 
-        send_sync();      // start-of-message
         send_byte(value); // send actual byte
     }
 
