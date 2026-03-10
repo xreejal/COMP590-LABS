@@ -11,6 +11,9 @@
 #define LINE_SIZE 64
 #define STRIDE (NUM_L2_CACHE_SETS * LINE_SIZE)
 
+#define MIN_CYCLES 520
+#define MAX_CYCLES 900
+
 #define REPEATS 2000
 
 volatile uint8_t *buf;
@@ -100,24 +103,21 @@ int main() {
                     tmp ^= *eviction_sets[set][w];
                 }
 
-                wait_cycles(5000);
+                wait_cycles(8000);
 
                 /* PROBE this set */
 
-                uint64_t latency = 0;
+                uint64_t total_time = 0;
 
-                for(int r = 0; r < 2; r++) {
+                for(int w = WAYS - 1; w >= 0; w--) {
                     uint64_t start = rdtscp();
-
-                    for(int w = WAYS - 1; w >= 0; w--) {
-                        tmp ^= *eviction_sets[set][w];
-                    }
-
+                    tmp ^= *eviction_sets[set][w];
                     uint64_t end = rdtscp();
-                    latency += (end - start);
+                    total_time += (end - start);
                 }
 
-                scores[set] += latency;
+                if(total_time >= MIN_CYCLES && total_time <= MAX_CYCLES)
+                    scores[set]++;
             }
         }
         int best_set = 0;
