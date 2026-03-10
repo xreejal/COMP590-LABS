@@ -69,7 +69,7 @@ int receive_bit(){
     prime_set();
     delay();
     uint64_t t = probe_set();
-    printf("%llu\n", t);
+    printf("%llu\n", (unsigned long long)t);
     return t > threshold ? 1 : 0;
 }
 
