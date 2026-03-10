@@ -9,43 +9,43 @@
 #define L2_WAYS 16
 #define STRIDE (1<<16)
 
-#define TARGET_SET 128
+#define DATA_SETS 8
+#define SIGNAL_SET 8
 #define SLOT_DELAY 4000
 
 void *buf;
-char *set_addrs[L2_WAYS+1]; // +1 for signal set
+char *sets[DATA_SETS+1]; // 0-7 = data bits, 8 = sync
 
 static inline void delay(){
     for(volatile int i=0;i<SLOT_DELAY;i++);
 }
 
-void build_set(){
+// Map sender sets to same offsets as receiver
+void build_sets(){
     char *base = (char*)buf;
-    for(int i=0;i<L2_WAYS;i++)
-        set_addrs[i] = base + TARGET_SET*64 + i*STRIDE;
-    
-    // Add signal set (set 8) at an offset
-    set_addrs[8] = base + (TARGET_SET+1)*64 + 0*STRIDE;
+    for(int s=0; s<=DATA_SETS; s++){
+        sets[s] = base + (64*64) + s*STRIDE;
+    }
 }
 
-// Send a single bit using eviction of the corresponding set
+// Send a single bit by evicting its corresponding set
 void send_bit(int bit, int set_index){
     if(bit){
-        for(int i=0;i<2000;i++)  // strong eviction for reliability
-            *(volatile char*)set_addrs[set_index];
+        for(int i=0;i<2000;i++)
+            *(volatile char*)(sets[set_index] + i*STRIDE);
     }
     delay();
 }
 
-// Evict signal set to indicate start of byte
+// Send sync signal
 void send_sync(){
-    for(int i=0;i<20000;i++)  // longer signal for receiver alignment
-        *(volatile char*)set_addrs[8];
+    for(int i=0;i<20000;i++)
+        *(volatile char*)(sets[SIGNAL_SET] + i*STRIDE);
     printf("[DEBUG] Sent sync signal\n");
     fflush(stdout);
 }
 
-// Send a byte (sets 0-7 = data, 8 = signal)
+// Send a byte (sets 0-7 = data bits)
 void send_byte(int value){
     printf("[DEBUG] Sending byte: %d\n", value);
     fflush(stdout);
@@ -73,7 +73,7 @@ int main(){
     if(buf==(void*)-1){ perror("mmap"); exit(1); }
     *((char*)buf)=1;
 
-    build_set();
+    build_sets();
 
     printf("Enter message (0-255 per line):\n");
 
