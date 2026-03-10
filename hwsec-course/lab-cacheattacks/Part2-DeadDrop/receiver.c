@@ -46,23 +46,37 @@ uint64_t probe_set(int s){
     return rdtscp() - start;
 }
 
-// Simple per-set calibration (manual or automatic)
 void calibrate(uint64_t manual_threshold){
     for(int s=0; s<=DATA_SETS; s++){
-        if(manual_threshold>0){
+
+        if(manual_threshold){
             thresholds[s] = manual_threshold;
-        } else {
-            uint64_t sum=0;
-            for(int k=0;k<500;k++){
-                prime_set(s);
-                sum += probe_set(s);
-            }
-            thresholds[s] = sum/500 * 2; // safe margin
+            continue;
         }
-        printf("Set %d threshold: %llu\n", s, (unsigned long long)thresholds[s]);
+
+        uint64_t hit=0, miss=0;
+
+        for(int i=0;i<500;i++){
+            prime_set(s);
+            hit += probe_set(s);
+        }
+
+        for(int i=0;i<500;i++){
+            miss += probe_set(s);
+        }
+
+        hit /= 500;
+        miss /= 500;
+
+        thresholds[s] = (hit + miss) / 2;
+
+        printf("Set %d threshold: %llu (hit=%llu miss=%llu)\n",
+            s,
+            (unsigned long long)thresholds[s],
+            (unsigned long long)hit,
+            (unsigned long long)miss);
     }
 }
-
 // Receive one byte with multi-sample voting
 int receive_byte(){
     int bit_counts[DATA_SETS] = {0};

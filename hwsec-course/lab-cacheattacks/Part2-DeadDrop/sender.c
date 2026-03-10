@@ -30,15 +30,22 @@ void build_sets(){
 
 void send_bit(int bit, int set_index){
     if(bit){
-        for(int i=0;i<L2_WAYS;i++)   // <- only 16 ways
-            *(volatile char*)(sets[set_index] + i*STRIDE);
+        for(int r=0; r<200; r++){        // repeat eviction
+            for(int i=0;i<L2_WAYS;i++){
+                *(volatile char*)(sets[set_index] + i*STRIDE);
+            }
+        }
     }
     delay();
 }
 
 void send_sync(){
-    for(int i=0;i<L2_WAYS*100;i++)  // small repeated eviction for signal
-        *(volatile char*)(sets[SIGNAL_SET] + (i % L2_WAYS)*STRIDE);
+    for(int r=0;r<500;r++){
+        for(int i=0;i<L2_WAYS;i++){
+            *(volatile char*)(sets[SIGNAL_SET] + i*STRIDE);
+        }
+    }
+
     printf("[DEBUG] Sent sync signal\n");
     fflush(stdout);
 }
