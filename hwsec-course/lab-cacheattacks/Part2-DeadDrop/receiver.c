@@ -93,10 +93,10 @@ int main(){
 
     determine_thresholds();
 
-    printf("Press enter to start listening\n");
+    printf("Please press enter\n");
     getchar();
 
-    printf("Receiver active\n");
+    printf("Receiver now listening\n");
 
     while(1){
 
