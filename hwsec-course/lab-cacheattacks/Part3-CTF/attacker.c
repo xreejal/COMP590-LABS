@@ -105,7 +105,7 @@ int main() {
 
             /* allow victim to run */
 
-            wait_cycles(8000);
+            wait_cycles(6000);
 
             /* PROBE all sets */
 
@@ -123,7 +123,7 @@ int main() {
                     total_time += end - start;
                 }
 
-                 if(total_time > 350)
+                if(total_time >= 500 && total_time <= 800)
                     scores[set]++;
                 }
             }
