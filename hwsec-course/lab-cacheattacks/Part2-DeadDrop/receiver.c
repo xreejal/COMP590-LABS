@@ -96,8 +96,8 @@ int receive_byte(){
 
 int detect_signal() {
     int consecutive_high = 0;
-    int required_high = 100;  // need 100 consecutive high-latency samples
-    int max_checks = 2000;    // maximum slots to check per detect_signal call
+    int required_high = 25;  // match sender burst better
+    int max_checks = 5000;   // scan longer to catch short bursts
 
     for(int i=0;i<max_checks;i++){
         prime_set();
@@ -105,17 +105,23 @@ int detect_signal() {
 
         if(probe_set() > threshold){
             consecutive_high++;
+            // debug: print first few high probes
+            if(consecutive_high <= 5) {
+                printf("[DEBUG] High probe slot %d\n", consecutive_high);
+                fflush(stdout);
+            }
+
             if(consecutive_high >= required_high) {
                 printf("[DEBUG] Signal detected after %d high slots\n", consecutive_high);
                 fflush(stdout);
-                return 1;  // signal detected
+                return 1;
             }
         } else {
             consecutive_high = 0;
         }
     }
 
-    return 0;  // no signal
+    return 0;
 }
 
 int main() {
