@@ -99,7 +99,7 @@ int main() {
 
                 int set = perm[i];
 
-                for(int w = 0; w < WAYS; w++)
+                for(int w = 0; w < WAYS-2; w++)
                     tmp ^= *eviction_sets[set][w];
             }
 
@@ -123,7 +123,7 @@ int main() {
                     total_time += end - start;
                 }
 
-                 if(total_time >= MIN_CYCLES && total_time <= MAX_CYCLES)
+                 if(total_time > 350)
                     scores[set]++;
                 }
             }
