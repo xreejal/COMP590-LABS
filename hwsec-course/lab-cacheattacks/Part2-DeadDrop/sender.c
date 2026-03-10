@@ -50,7 +50,7 @@ void send_byte(int value){
 
 void send_sync(){
 
-    for(int i=0;i<2000;i++)
+    for(int i=0;i<50000;i++)
         evict_set();
 }
 

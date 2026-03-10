@@ -95,20 +95,23 @@ int receive_byte(){
 }
 
 int detect_signal() {
-    int consecutive = 0;
-    int required = 5; // require 5 consecutive high samples
-    for(int i=0;i<20;i++){
+    int consecutive_high = 0;
+    int required_high = 50;  // need 50 consecutive high-latency samples
+
+    for(int i=0;i<1000;i++){  // check up to 1000 slots
         prime_set();
         delay();
+
         if(probe_set() > threshold){
-            consecutive++;
-            if(consecutive >= required)
-                return 1; // signal detected
+            consecutive_high++;
+            if(consecutive_high >= required_high)
+                return 1;  // signal detected
         } else {
-            consecutive = 0;
+            consecutive_high = 0;
         }
     }
-    return 0;
+
+    return 0;  // no signal
 }
 
 int main() {
