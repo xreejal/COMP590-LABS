@@ -10,7 +10,7 @@
 #define STRIDE (1<<16)
 
 #define TARGET_SET 128
-#define SLOT_DELAY 8000
+#define SLOT_DELAY 12000
 
 void *buf;
 char *set_addrs[L2_WAYS];
@@ -52,16 +52,18 @@ uint64_t probe_set(){
     return rdtscp() - start;
 }
 
-void calibrate(){
-
+void calibrate() {
     uint64_t sum = 0;
+    int samples = 1000;
 
-    for(int i=0;i<1000;i++){
+    for(int i=0;i<samples;i++){
         prime_set();
         sum += probe_set();
     }
 
-    threshold = (sum/1000) * 2;
+    uint64_t avg = sum / samples;
+    threshold = avg + avg/2; // 50% higher than average idle
+    printf("Calibrated threshold: %llu\n", (unsigned long long)threshold);
 }
 
 int receive_bit(){
@@ -92,7 +94,24 @@ int receive_byte(){
     return value;
 }
 
-int main(){
+int detect_signal() {
+    int consecutive = 0;
+    int required = 5; // require 5 consecutive high samples
+    for(int i=0;i<20;i++){
+        prime_set();
+        delay();
+        if(probe_set() > threshold){
+            consecutive++;
+            if(consecutive >= required)
+                return 1; // signal detected
+        } else {
+            consecutive = 0;
+        }
+    }
+    return 0;
+}
+
+int main() {
 
     srand(time(NULL));
 
@@ -100,7 +119,7 @@ int main(){
                MAP_POPULATE|MAP_ANONYMOUS|MAP_PRIVATE|MAP_HUGETLB,
                -1,0);
 
-    if(buf==(void*)-1){
+    if(buf == (void*)-1){
         perror("mmap");
         exit(1);
     }
@@ -117,10 +136,14 @@ int main(){
     printf("Receiver now listening.\n");
 
     while(1){
-
-        int value = receive_byte();
-
-        printf("%d\n",value);
+        // Wait for a signal from sender
+        if(detect_signal()){
+            int value = receive_byte();
+            printf("%d\n", value);
+        } else {
+            // Optional: short sleep to reduce CPU usage
+            for(volatile int i=0;i<1000;i++);
+        }
     }
 
     return 0;
