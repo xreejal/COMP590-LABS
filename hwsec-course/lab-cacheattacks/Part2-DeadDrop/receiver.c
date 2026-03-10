@@ -12,6 +12,7 @@
 #define DATA_SETS 8       // sets 0-7 carry bits
 #define SIGNAL_SET 8      // set 8 for sync
 #define SLOT_DELAY 4000
+//A
 
 void *buf;
 char *sets[DATA_SETS + 1];  // pointers to each set
