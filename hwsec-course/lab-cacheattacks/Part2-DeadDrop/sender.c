@@ -21,6 +21,7 @@ static inline void delay() {
 
 void build_set() {
     char *base = (char*)buf;
+
     for(int i=0;i<L2_WAYS;i++){
         set_addrs[i] = base + TARGET_SET*64 + i*STRIDE;
     }
@@ -41,17 +42,24 @@ void send_bit(int bit){
 }
 
 void send_byte(int value){
+    printf("[DEBUG] Sending byte: %d\n", value);
+    fflush(stdout);
+
     for(int i=0;i<8;i++){
         int bit = (value >> i) & 1;
         send_bit(bit);
     }
+
+    printf("[DEBUG] Byte %d sent successfully\n", value);
+    fflush(stdout);
 }
 
 void send_sync(){
-    // Make sync slightly shorter than before to avoid receiver missing it
-    for(int i=0;i<20000;i++)
+    for(int i=0;i<50000;i++)
         evict_set();
+
     printf("[DEBUG] Sent sync signal\n");
+    fflush(stdout);
 }
 
 int main(){
@@ -81,19 +89,12 @@ int main(){
 
         if(value < 0 || value > 255){
             printf("Enter value 0-255\n");
-            fflush(stdout);
             continue;
         }
 
-        send_sync();           
-        printf("[DEBUG] Sent sync signal\n");
-        fflush(stdout);
-
-        printf("[DEBUG] Sending byte: %d\n", value);
-        fflush(stdout);
-
-        send_byte(value);      
-}
+        send_sync();      // start-of-message signal
+        send_byte(value); // send the data
+    }
 
     return 0;
 }

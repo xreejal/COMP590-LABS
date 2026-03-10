@@ -96,16 +96,20 @@ int receive_byte(){
 
 int detect_signal() {
     int consecutive_high = 0;
-    int required_high = 20;  // 20 consecutive high-latency samples instead of 50
+    int required_high = 100;  // need 100 consecutive high-latency samples
+    int max_checks = 2000;    // maximum slots to check per detect_signal call
 
-    for(int i=0;i<1000;i++){
+    for(int i=0;i<max_checks;i++){
         prime_set();
         delay();
 
         if(probe_set() > threshold){
             consecutive_high++;
-            if(consecutive_high >= required_high)
+            if(consecutive_high >= required_high) {
+                printf("[DEBUG] Signal detected after %d high slots\n", consecutive_high);
+                fflush(stdout);
                 return 1;  // signal detected
+            }
         } else {
             consecutive_high = 0;
         }
@@ -139,12 +143,11 @@ int main() {
     printf("Receiver now listening.\n");
 
     while(1){
-        // Wait for a signal from sender
         if(detect_signal()){
             int value = receive_byte();
-            printf("%d\n", value);
+            printf("[DEBUG] Received byte: %d\n", value);
+            fflush(stdout);
         } else {
-            // Optional: short sleep to reduce CPU usage
             for(volatile int i=0;i<1000;i++);
         }
     }
