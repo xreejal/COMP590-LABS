@@ -48,6 +48,12 @@ void send_byte(int value){
     }
 }
 
+void send_sync(){
+
+    for(int i=0;i<2000;i++)
+        evict_set();
+}
+
 int main(){
 
     srand(time(NULL));
@@ -78,7 +84,8 @@ int main(){
             continue;
         }
 
-        send_byte(value);
+        send_sync();      // start-of-message signal
+        send_byte(value); // send the data
     }
 
     return 0;
