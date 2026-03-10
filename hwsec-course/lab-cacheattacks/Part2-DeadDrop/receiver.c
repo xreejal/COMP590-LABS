@@ -96,9 +96,9 @@ int receive_byte(){
 
 int detect_signal() {
     int consecutive_high = 0;
-    int required_high = 50;  // need 50 consecutive high-latency samples
+    int required_high = 20;  // 20 consecutive high-latency samples instead of 50
 
-    for(int i=0;i<1000;i++){  // check up to 1000 slots
+    for(int i=0;i<1000;i++){
         prime_set();
         delay();
 
