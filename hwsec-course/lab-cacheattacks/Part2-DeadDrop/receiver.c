@@ -10,44 +10,51 @@
 #define STRIDE (1<<16)
 
 #define TARGET_SET 128
-#define SLOT_DELAY 4000  // reduced for timing alignment
+#define SLOT_DELAY 4000  // keep aligned with sender
 
 void *buf;
 char *set_addrs[L2_WAYS];
 
-uint64_t threshold;
+uint64_t threshold = 0; // can manually set if needed
 
-static inline uint64_t rdtscp(){
-    uint32_t lo,hi;
+static inline uint64_t rdtscp() {
+    uint32_t lo, hi;
     asm volatile("rdtscp" : "=a"(lo), "=d"(hi)::"rcx");
-    return ((uint64_t)hi<<32)|lo;
+    return ((uint64_t)hi << 32) | lo;
 }
 
-static inline void delay(){
+static inline void delay() {
     for(volatile int i=0;i<SLOT_DELAY;i++);
 }
 
-void build_set(){
+void build_set() {
     char *base = (char*)buf;
     for(int i=0;i<L2_WAYS;i++){
         set_addrs[i] = base + TARGET_SET*64 + i*STRIDE;
     }
 }
 
-void prime_set(){
+void prime_set() {
     for(int i=0;i<L2_WAYS;i++)
         *(volatile char*)set_addrs[i];
 }
 
-uint64_t probe_set(){
+uint64_t probe_set() {
     uint64_t start = rdtscp();
     for(int i=L2_WAYS-1;i>=0;i--)
         *(volatile char*)set_addrs[i];
     return rdtscp() - start;
 }
 
-void calibrate() {
-    uint64_t min_t = 0xffffffffffffffff;
+// Improved calibration with optional manual threshold
+void calibrate(int use_manual, uint64_t manual_threshold) {
+    if(use_manual) {
+        threshold = manual_threshold;
+        printf("Manual threshold set: %llu\n", (unsigned long long)threshold);
+        return;
+    }
+
+    uint64_t min_t = UINT64_MAX;
     uint64_t max_t = 0;
     int samples = 1000;
 
@@ -65,15 +72,15 @@ void calibrate() {
            (unsigned long long)max_t);
 }
 
-int receive_bit(){
+// receive one bit, no debug flood
+int receive_bit() {
     prime_set();
     delay();
     uint64_t t = probe_set();
-    printf("%llu\n", (unsigned long long)t);
     return t > threshold ? 1 : 0;
 }
 
-int receive_byte(){
+int receive_byte() {
     int value = 0;
     for(int i=0;i<8;i++){
         int bit = receive_bit();
@@ -82,9 +89,9 @@ int receive_byte(){
     return value;
 }
 
-int detect_signal(){
+int detect_signal() {
     int consecutive_high = 0;
-    int required_high = 15;
+    int required_high = 25;  // increased for noise robustness
     int max_checks = 5000;
 
     for(int i=0;i<max_checks;i++){
@@ -101,7 +108,7 @@ int detect_signal(){
     return 0;
 }
 
-int main(){
+int main() {
     srand(time(NULL));
 
     buf = mmap(NULL, BUFF_SIZE, PROT_READ|PROT_WRITE,
@@ -111,7 +118,9 @@ int main(){
     *((char*)buf)=1;
 
     build_set();
-    calibrate();
+
+    // either calibrate automatically or set manual threshold (e.g., 240)
+    calibrate(1, 240);  
 
     printf("Press enter to start receiver.\n");
     getchar();
@@ -119,7 +128,7 @@ int main(){
 
     while(1){
         if(detect_signal()){
-            // wait for sync burst to finish
+            // wait for sender burst to finish
             for(volatile int i=0;i<500000;i++);
             int value = receive_byte();
             printf("[DEBUG] Received byte: %d\n", value);
