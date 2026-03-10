@@ -112,18 +112,17 @@ int main() {
             for(int i = 0; i < NUM_L2_CACHE_SETS; i++) {
 
                 int set = perm[i];
-                uint64_t total_time = 0;
+
+                uint64_t start = rdtscp();
 
                 for(int w = WAYS - 1; w >= 0; w--) {
-
-                    uint64_t start = rdtscp();
                     tmp ^= *eviction_sets[set][w];
-                    uint64_t end = rdtscp();
-
-                    total_time += end - start;
                 }
 
-                if(total_time >= 500 && total_time <= 800)
+                uint64_t end = rdtscp();
+                uint64_t total_time = end - start;
+                
+                if(total_time > 260)
                     scores[set]++;
                 }
             }
