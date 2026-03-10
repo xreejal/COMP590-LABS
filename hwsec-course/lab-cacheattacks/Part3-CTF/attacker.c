@@ -121,19 +121,17 @@ int main() {
             }
         }
         int best_set = 0;
-        uint64_t best_latency = 0;
+        uint64_t best_score = 0;
 
         for(int set = 0; set < NUM_L2_CACHE_SETS; set++) {
 
-            uint64_t avg = scores[set] / REPEATS;
-
-            if(avg > best_latency) {
-                best_latency = avg;
+            if(scores[set] > best_score) {
+                best_score = scores[set];
                 best_set = set;
-            }
+            }   
         }
 
-        printf("Guessed flag: %d (latency=%lu)\n", best_set, best_latency);
+        printf("Guessed flag: %d (hits=%lu)\n", best_set, best_score);
 
         wait_cycles(2000);
     }
