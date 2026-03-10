@@ -5,92 +5,95 @@
 #include <stdint.h>
 #include <time.h>
 
-#define BUFF_SIZE (1<<21)
-#define L2_WAYS 16
+#define BUF_SZ (1<<21)
+#define L2_ASSOC 16
 #define STRIDE (1<<16)
-#define SET_SPACING 32
-#define BASE_SET 64
+#define SET_STEP 32
+#define START_SET 64
 
-struct node {
-    struct node *next;
-    char pad[64 - sizeof(struct node*)];
-};
+typedef struct entry {
+    struct entry *next;
+    char pad[64 - sizeof(struct entry*)];
+} entry;
 
-void *buffer;
-struct node *l2_sets[9];
+void *region;
+entry *channels[9];
+uint64_t loops_per_message = 1500000;
 
-// Build a linked list for one set
-// Best working version
-void create_set(int set_idx) {
-    char *base = (char*)buffer;
-    struct node *prev = NULL;
-
-    for(int i=0; i<L2_WAYS; i++){
-        struct node *n = (struct node*)(base + (BASE_SET + set_idx*SET_SPACING)*64 + i*STRIDE);
-        if(prev) prev->next = n;
-        else l2_sets[set_idx] = n;
-        prev = n;
+// Shuffle helper
+void shuffle_array(int *arr, int n){
+    for(int i=n-1;i>0;i--){
+        int j = rand()%(i+1);
+        int t = arr[i]; arr[i]=arr[j]; arr[j]=t;
     }
-    prev->next = NULL;
 }
 
-// Traverse a set to evict its cache lines
-void evict_set(int idx){
-    struct node *curr = l2_sets[idx];
-    while(curr) curr = curr->next;
-    // Second pass for reliability
-    curr = l2_sets[idx];
-    while(curr) curr = curr->next;
+// Setup a channel with optional shuffle of eviction nodes
+void setup_channel(int id){
+    char *base = (char*)region;
+    entry *nodes[L2_ASSOC];
+    
+    for(int i=0;i<L2_ASSOC;i++)
+        nodes[i] = (entry*)(base + (START_SET + id*SET_STEP)*64 + i*STRIDE);
+
+    shuffle_array((int*)nodes, L2_ASSOC); // Shuffle nodes differently
+    for(int i=0;i<L2_ASSOC-1;i++)
+        nodes[i]->next = nodes[i+1];
+    nodes[L2_ASSOC-1]->next = NULL;
+
+    channels[id] = nodes[0];
 }
 
-// Evict only the data bits (0–7) in random order
-void evict_data_bits_random(int value){
-    int bits[8];
-    for(int i=0;i<8;i++) bits[i] = i;
+// Disturb a channel (evict)
+void disturb(int id){
+    entry *p = channels[id];
+    while(p) p = p->next;
+    // Optional second pass to increase eviction
+    p = channels[id];
+    while(p) p = p->next;
+}
 
-    // Fisher-Yates shuffle
-    for(int i=7;i>0;i--){
-        int j = rand() % (i+1);
-        int tmp = bits[i]; bits[i] = bits[j]; bits[j] = tmp;
-    }
+// Transmit 8 bits
+void transmit_bits(int value){
+    int bits[8]={0,1,2,3,4,5,6,7};
+    shuffle_array(bits,8); // shuffle bit order each transmission
 
     for(int i=0;i<8;i++){
         int b = bits[i];
-        if((value >> b) & 1) evict_set(b);
+        if((value>>b)&1) disturb(b);
     }
 }
 
-int main() {
+int main(){
     srand(time(NULL));
 
-    buffer = mmap(NULL, BUFF_SIZE, PROT_READ|PROT_WRITE,
-                  MAP_POPULATE|MAP_ANONYMOUS|MAP_PRIVATE|MAP_HUGETLB, -1, 0);
+    region = mmap(NULL, BUF_SZ,
+                  PROT_READ|PROT_WRITE,
+                  MAP_POPULATE|MAP_ANONYMOUS|MAP_PRIVATE|MAP_HUGETLB,
+                  -1,0);
 
-    if(buffer==(void*)-1){ perror("mmap"); exit(1); }
+    if(region==(void*)-1){ perror("mmap"); exit(1); }
 
-    *((char*)buffer) = 1;
+    *((char*)region)=1;
 
-    for(int i=0;i<=8;i++) create_set(i);
+    for(int i=0;i<9;i++) setup_channel(i);
 
-    printf("Sender ready.\n");
+    printf("Please type a message.\n");
 
-    char line[128];
-    while(fgets(line,sizeof(line),stdin)){
-        int value = atoi(line);
-        if(value<0 || value>255){ 
-            printf("Enter a value between 0 and 255\n"); 
-            continue; 
+    char input[128];
+    while(fgets(input,sizeof(input),stdin)){
+        int msg = atoi(input);
+        if(msg<0||msg>255){ printf("Enter number 0-255\n"); continue; }
+
+        printf("Sending %d\n", msg);
+
+        long loops = loops_per_message;
+        while(loops--){
+            disturb(8);           // valid signal
+            transmit_bits(msg);   // payload
         }
 
-        printf("Sending %d\n", value);
-
-        long iterations = 2000000;
-        while(iterations--){
-            evict_set(8);             // Valid bit
-            evict_data_bits_random(value); // Data bits
-        }
-
-        printf("Sent.\n");
+        printf("Transmission complete\n");
     }
 
     return 0;
