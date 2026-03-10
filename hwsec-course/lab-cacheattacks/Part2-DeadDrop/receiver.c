@@ -10,7 +10,7 @@
 #define STRIDE (1<<16)
 
 #define TARGET_SET 128
-#define SLOT_DELAY 12000
+#define SLOT_DELAY 8000
 
 void *buf;
 char *set_addrs[L2_WAYS];
@@ -45,7 +45,7 @@ uint64_t probe_set(){
 
     uint64_t start = rdtscp();
 
-    for(int i=0;i<L2_WAYS;i++){
+    for(int i=L2_WAYS-1;i>=0;i--){
         *(volatile char*)set_addrs[i];
     }
 
@@ -62,7 +62,7 @@ void calibrate() {
     }
 
     uint64_t avg = sum / samples;
-    threshold = avg + avg/2; // 50% higher than average idle
+    threshold = avg * 2; // 50% higher than average idle
     printf("Calibrated threshold: %llu\n", (unsigned long long)threshold);
 }
 
@@ -146,7 +146,7 @@ int main() {
         if(detect_signal()){
 
             // wait for sync burst to finish
-            for(volatile int i=0;i<200000;i++);
+            for(volatile int i=0;i<500000;i++);
 
             int value = receive_byte();
 
