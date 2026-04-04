@@ -18,6 +18,10 @@ static inline void mfence() {
     asm volatile("mfence");
 }
 
+void mfence(void) {
+    asm volatile("mfence" ::: "memory");
+}
+
 /*
  * clflush
  * Flushes an address from the cache for you
