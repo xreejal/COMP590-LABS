@@ -67,4 +67,6 @@ void init_shared_memory(char *shared_memory, size_t len);
  */
 int run_attacker(int kernel_fd, char *shared_memory);
 
+void mfence(void);
+
 #endif // SHD_SPECTRE_LAB_H
