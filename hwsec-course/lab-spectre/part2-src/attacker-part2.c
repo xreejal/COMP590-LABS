@@ -4,6 +4,8 @@
  * Part 2
  */
 
+ /* working version for part 2*/
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
