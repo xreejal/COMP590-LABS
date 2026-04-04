@@ -14,9 +14,6 @@
  * mfence
  * Adds a memory fence
  */
-static inline void mfence() {
-    asm volatile("mfence");
-}
 
 void mfence(void) {
     asm volatile("mfence" ::: "memory");
