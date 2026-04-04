@@ -23,6 +23,8 @@
  *  - shared_memory: Memory region to share with the kernel
  *  - offset: The offset into the secret to try and read
  */
+
+/*PART 1 COMPLETE*/
 static inline void call_kernel_part1(int kernel_fd, char *shared_memory, size_t offset) {
     spectre_lab_command local_cmd;
     local_cmd.kind = COMMAND_PART1;
