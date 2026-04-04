@@ -4,7 +4,7 @@
  * Part 2
  */
 
- /* working version for part 2*/
+ /* working version for part 2 confirmed 2x*/
 
 #include <stdio.h>
 #include <stdlib.h>
