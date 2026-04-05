@@ -63,7 +63,7 @@ int run_attacker(int kernel_fd, char *shared_memory) {
             volatile char tmp = shared_memory[i * SHD_SPECTRE_LAB_PAGE_SIZE];
         }
 
-        for (int attempt = 0; attempt < 800; attempt++) {
+        for (int attempt = 0; attempt < 500; attempt++) {
 
             
 
@@ -93,7 +93,7 @@ int run_attacker(int kernel_fd, char *shared_memory) {
                 uint64_t time = time_access(shared_memory + i * SHD_SPECTRE_LAB_PAGE_SIZE);
 
                 if (time < CACHE_HIT_THRESHOLD) {
-                    scores[i]+= 3;
+                    scores[i]+= 2;
                 }
             }
         }
