@@ -11,6 +11,8 @@
 #include "labspectre.h"
 #include "labspectreipc.h"
 
+#define CACHE_HIT_THRESHOLD 100
+
 /*
  * call_kernel_part3
  * Performs the COMMAND_PART3 call in the kernel
