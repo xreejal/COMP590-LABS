@@ -23,7 +23,7 @@
  *  - kernel_fd: A file descriptor to the kernel module
  *  - shared_memory: Memory region to share with the kernel
  *  - offset: The offset into the secret to try and read
- * WORKS ROUGHLY 20% of the time for part3
+ * WORKS ROUGHLY 20% of the time for part3, working ver
  */
 static inline void call_kernel_part3(int kernel_fd, char *shared_memory, size_t offset) {
     spectre_lab_command local_cmd;
