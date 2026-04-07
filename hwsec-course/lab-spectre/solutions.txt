@@ -1,0 +1,122 @@
+1: Leaking Kernel Memory via Flush+Reload (35%)
+Discussion Question 1: How many addresses need to be flushed at the first step?
+256 
+
+Verified ✓+
+
+Discussion Question 2: Now assume the attacker and victim no longer share a memory region.
+
+Would your attack still work? If not, what changes would you need to make to make it work?
+
+No, because flush and reload depends on shared physical memory and cache lines. Prime + probe is needed instead. 
+
+Verified ✓+
+
+2: Basic Spectre (40%)
+
+Discussion Question 3: In our example, the attacker tries to leak the values in the array
+secret_part2. In a real-world attack, people can use Spectre to leak arbitrary values in the victim’s
+address space. Explain how the attacker can achieve this
+
+Spectre works by 
+
+Using out-of-bounds speculative execution
+
+Turning secret values into:
+
+memory access index = secret byte
+Then leaking via cache timing
+
+So attacker:
+
+Controls an index (bounds check)
+Tricks CPU into skipping bounds check temporarily (by mispredicting the branch)
+Uses loaded secret as pointer into probe array
+
+This lets attacker read:
+
+kernel memory
+other process memory
+arbitrary user-space memory
+
+Verified ✓+
+
+Discussion Question 4: Try to tune the training parameters and answer this question: What is the
+fewest number of times you need to train the branch on line 9 in Listing 3 to make the attack work?
+The stability changes dramatically from 5-10 trials. 
+
+Verified ✓+
+
+3: Advanced Spectre (25%)
+
+Discussion Question 5: Describe your strategy to extend the speculation window of the target
+branch in the victim.
+
+To make the Spectre attack work against the modified Part 3 victim, the key challenge is increasing the time between branch prediction and branch resolution, so the speculative load has enough time to execute and influence the cache.
+
+Our strategy focuses on slowing down branch resolution and delaying data availability, without modifying the victim code itself.
+
+1. Evicting part3_limit from cache (main technique)
+
+Since part3_limit is no longer flushed by the victim, we repeatedly evict it from the CPU cache before each attack iteration.
+
+Use a large eviction buffer (~32 MB).
+Scan it with a 64-byte stride to touch every cache line.
+This forces cache misses when the CPU checks offset < part3_limit.
+
+Result: the CPU must fetch part3_limit from DRAM much more often, which is much slower → longer branch resolution time → larger speculation window
+
+2. Cache pollution to slow down memory subsystem
+
+We increase memory pressure by repeatedly accessing large memory regions before the attack:
+
+forces LLC thrashing
+increases contention for memory bandwidth
+slows down kernel memory access paths
+
+ This indirectly increases the time before the branch condition resolves.
+
+3. Increasing branch misprediction reliability (training)
+
+We repeatedly call the victim with valid indices (offset = 0) many times:
+
+strengthens branch predictor bias toward “taken”
+ensures speculation begins immediately on real attack call
+
+ This does not extend the window directly, but ensures we use it effectively.
+
+4. Reducing competing noise from measurement path
+
+We flush the probe array (clflush) and synchronize with mfence so that:
+
+cache state is clean before each attempt
+timing differences are maximized
+speculative effects are not masked by stale cache lines
+5. Forcing memory hierarchy delays (TLB + cache effects)
+
+Because Part 3 introduces a TLB miss on first access:
+
+We pre-touch shared memory pages to warm TLB where possible
+but still rely on cache eviction to slow actual data access paths
+
+Our
+
+My strategy to extend the speculation window is to delay branch resolution by forcing cache and memory subsystem stalls, primarily through:
+
+evicting part3_limit from cache (key improvement)
+large-scale cache eviction buffer traversal
+repeated branch predictor training
+increasing memory subsystem contention
+
+These combined effects increase the time between branch fetch and resolution, allowing the speculative load (with its false dependency and TLB miss delay) to execute far enough to leak data into the cache.
+
+Verified ✓+
+
+Discussion Question 6: Assume you are an attacker looking to exploit a new machine that has the
+same kernel module installed as the one we attacked in lab 2. What information would you need to
+know about this unknown machine to port your attack to the new system? Could it be possible to
+determine that information experimentally? Briefly describe in 5 sentences or less.
+
+To port the attack to a new machine, We would need key microarchitectural details that affect timing and cache behavior, such as the CPU model, cache hierarchy (L1/L2/LLC sizes and sharing), cache line size, and approximate memory latency characteristics. We would also need to know the branch predictor behavior and whether features like speculative execution mitigation or cache partitioning (e.g., Intel CAT, AMD differences) are present. The cache hit/miss timing threshold and TLB behavior are also critical, since they determine how to distinguish signal from noise. Yes, most of this information can be determined experimentally using microbenchmarks, such as measuring access times to infer cache sizes, eviction sets, and DRAM latency. By combining these measurements, an attacker can calibrate eviction buffer sizes, thresholds, and training iterations to adapt the Spectre attack to the new system.
+Verified ✓+
+
