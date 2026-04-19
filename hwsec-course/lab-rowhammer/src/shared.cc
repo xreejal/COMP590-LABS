@@ -73,8 +73,8 @@ uint64_t virt_to_phys(uint64_t virt_addr) {
 
     // TODO: Exercise 1-1
     // Compute the virtual page number from the virtual address
-    uint64_t virt_page_number = virt_addr / 0x1000;
-    uint64_t file_offset = virt_page_number * sizeof(uint64_t);
+    uint64_t virt_page_number = virt_addr / HUGE_PAGE_SIZE;
+    uint64_t file_offset = virt_addr & (HUGE_PAGE_SIZE - 1);
 
     if ((pagemap = fopen("/proc/self/pagemap", "r"))) {
         if (lseek(fileno(pagemap), file_offset, SEEK_SET) == file_offset) {
