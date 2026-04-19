@@ -87,9 +87,7 @@ uint64_t virt_to_phys(uint64_t virt_addr) {
 
                     // Extract offset within the page
                     uint64_t offset = virt_addr & 0xfff;
-                    phys_adr = (phys_page_number << 12) | offset;
-
-                    phys_addr = 0;
+                    phys_addr = (phys_page_number << 12) | offset;
                 } 
             }
         }
