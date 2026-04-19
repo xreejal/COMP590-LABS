@@ -84,6 +84,11 @@ uint64_t virt_to_phys(uint64_t virt_addr) {
                     // TODO: Exercise 1-1
                     // Using the extracted physical page number,
                     // derive the physical address
+
+                    // Extract offset within the page
+                    uint64_t offset = virt_addr & 0xfff;
+                    phys_adr = (phys_page_number << 12) | offset;
+
                     phys_addr = 0;
                 } 
             }
