@@ -135,7 +135,22 @@ uint64_t virt_to_phys(uint64_t virt_addr) {
 
 uint64_t phys_to_virt(uint64_t phys_addr) {
     // TODO: Exercise 1-4
-    return 0;
+    // Extract 2MB physical page number
+    uint64_t phys_page_number = phys_addr >> 21;
+
+    // Extract offset within 2MB page
+    uint64_t page_offset = phys_addr & (HUGE_PAGE_SIZE - 1);
+
+    // Lookup virtual page number
+    auto it = PPN_VPN_map.find(phys_page_number);
+    if (it == PPN_VPN_map.end()) {
+        return 0; // not mapped
+    }
+
+    uint64_t virt_page_number = it->second;
+
+    // Reconstruct virtual address
+    return (virt_page_number << 21) | page_offset;
 }
 
 
