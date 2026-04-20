@@ -25,6 +25,30 @@ void * allocated_mem;
  */
 void setup_PPN_VPN_map(void * mem_map,
                        std::map<uint64_t, uint64_t> &PPN_VPN_map) {
+
+    // Clear existing mappings
+    PPN_VPN_map.clear();
+
+    // Total size = 2GB
+    uint64_t region_size = BUFFER_SIZE_MB * 1024ULL * 1024ULL;
+
+    // Walk through memory in 2MB steps
+    for (uint64_t offset = 0; offset < region_size; offset += HUGE_PAGE_SIZE) {
+
+        uint64_t virt_addr = reinterpret_cast<uint64_t>(mem_map) + offset;
+
+        uint64_t phys_addr = virt_to_phys(virt_addr);
+
+        // Skip unmapped pages (shouldn’t really happen, but safe)
+        if (phys_addr == 0) continue;
+
+        // Extract 2MB page numbers
+        uint64_t phys_page_number = phys_addr >> 21;
+        uint64_t virt_page_number = virt_addr >> 21;
+
+        // Store mapping
+        PPN_VPN_map[phys_page_number] = virt_page_number;
+    }
     // TODO: Exercise 1-3
 }
 
