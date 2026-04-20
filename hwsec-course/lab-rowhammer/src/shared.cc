@@ -182,7 +182,26 @@ char* get_rand_addr(size_t buf_size)
  */
 uint64_t measure_bank_latency(volatile char *addr_A, volatile char *addr_B) {
     // TODO: Exercise 2-2
-    return 0; 
+    // 1. Evict from cache so we measure DRAM latency
+    clflush(addr_A);
+    clflush(addr_B);
+    mfence();
+
+    // 2. Serialize before timing
+    lfence();
+    uint64_t start = rdtscp64();
+
+    // 3. Access both addresses back-to-back
+    volatile uint8_t tmp1 = *addr_A;
+    volatile uint8_t tmp2 = *addr_B;
+    (void)tmp1;
+    (void)tmp2;
+
+    // 4. Serialize before stop timing
+    lfence();
+    uint64_t end = rdtscp64();
+
+    return end - start;
 }
 
 /*
