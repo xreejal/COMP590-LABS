@@ -11,7 +11,7 @@
 #define BANKS 16
 #define CONSISTENCY_RATE 0.95
 // TODO: Threshold derived in part2
-#define THRESHOLD 1000 
+#define THRESHOLD 800
 #define POOL_SIZE 1000
 #define ROUNDS  100
 
@@ -54,12 +54,13 @@ uint64_t median(uint64_t* vals, size_t size) {
 std::array<std::vector<uint64_t>, BANKS> bin_rows(uint64_t starting_addr, uint64_t final_addr) {
     // TODO - Exercise 3-1
     std::array<std::vector<uint64_t>, BANKS> bins;
-     std::vector<uint64_t> candidates;
+    std::vector<uint64_t> candidates;
 
     // Step 1: sample addresses
     for (uint64_t addr = starting_addr;
          addr < final_addr;
-         addr += CACHELINE_SIZE * 64) {   // stride to reduce correlation
+         addr += CACHELINE_SIZE * 64) {
+
         candidates.push_back(addr);
         if (candidates.size() >= POOL_SIZE) break;
     }
@@ -67,15 +68,17 @@ std::array<std::vector<uint64_t>, BANKS> bin_rows(uint64_t starting_addr, uint64
     // Step 2: clustering
     for (auto addr : candidates) {
 
-        bool placed = false;
+        int best_bin = -1;
+        uint64_t best_med = 0;
 
+        // try matching against existing bins
         for (int b = 0; b < BANKS; b++) {
-            if (bins[b].empty()) continue;
 
-            // compare with representative (first element)
-            uint64_t ref = bins[b][0];
+            if (bins[b].size() < 5) continue;
 
-            uint64_t *tmp = (uint64_t*)calloc(ROUNDS, sizeof(uint64_t));
+            uint64_t ref = bins[b][0];  // deterministic reference (more stable than rand)
+
+            uint64_t tmp[ROUNDS];
 
             for (int i = 0; i < ROUNDS; i++) {
                 tmp[i] = measure_bank_latency(
@@ -85,23 +88,39 @@ std::array<std::vector<uint64_t>, BANKS> bin_rows(uint64_t starting_addr, uint64
             }
 
             uint64_t med = median(tmp, ROUNDS);
-            free(tmp);
 
-            if (med > THRESHOLD) {
-                bins[b].push_back(addr);
-                placed = true;
-                break;
+            if (med > THRESHOLD && med > best_med) {
+                best_med = med;
+                best_bin = b;
             }
         }
 
-        // new bin if no match
-        if (!placed) {
+        // assign to best bin OR create new one
+        if (best_bin != -1) {
+            bins[best_bin].push_back(addr);
+        } else {
+            bool placed = false;
+
+            // seed new bin if possible
             for (int b = 0; b < BANKS; b++) {
                 if (bins[b].empty()) {
                     bins[b].push_back(addr);
+                    placed = true;
                     break;
                 }
             }
+
+            // fallback: force into best available bin (prevents dropping data)
+            if (!placed) {
+                bins[0].push_back(addr);
+            }
+        }
+    }
+
+    // Step 3: sanity check (optional debug)
+    for (int i = 0; i < BANKS; i++) {
+        if (bins[i].empty()) {
+            printf("WARNING: empty bin %d\n", i);
         }
     }
 
