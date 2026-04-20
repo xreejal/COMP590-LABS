@@ -134,6 +134,7 @@ uint64_t virt_to_phys(uint64_t virt_addr) {
  */
 
 uint64_t phys_to_virt(uint64_t phys_addr) {
+    // phys_to_virt test passed
     // TODO: Exercise 1-4
     // Extract 2MB physical page number
     uint64_t phys_4kb_page = phys_addr >> 12;
