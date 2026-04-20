@@ -80,7 +80,7 @@ uint64_t virt_to_phys(uint64_t virt_addr) {
         if (lseek(fileno(pagemap), file_offset, SEEK_SET) == file_offset) {
             if (fread(&entry, sizeof(uint64_t), 1, pagemap)) {
                 if (entry & (1ULL << 63)) {
-                    uint64_t phys_page_number = entry & ((1ULL << 54) - 1);
+                    uint64_t phys_page_number = entry & ((1ULL << 55) - 1);
                     // TODO: Exercise 1-1
                     // Using the extracted physical page number,
                     // derive the physical address
