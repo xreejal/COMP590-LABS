@@ -54,6 +54,57 @@ uint64_t median(uint64_t* vals, size_t size) {
 std::array<std::vector<uint64_t>, BANKS> bin_rows(uint64_t starting_addr, uint64_t final_addr) {
     // TODO - Exercise 3-1
     std::array<std::vector<uint64_t>, BANKS> bins;
+     std::vector<uint64_t> candidates;
+
+    // Step 1: sample addresses
+    for (uint64_t addr = starting_addr;
+         addr < final_addr;
+         addr += CACHELINE_SIZE * 64) {   // stride to reduce correlation
+        candidates.push_back(addr);
+        if (candidates.size() >= POOL_SIZE) break;
+    }
+
+    // Step 2: clustering
+    for (auto addr : candidates) {
+
+        bool placed = false;
+
+        for (int b = 0; b < BANKS; b++) {
+            if (bins[b].empty()) continue;
+
+            // compare with representative (first element)
+            uint64_t ref = bins[b][0];
+
+            uint64_t *tmp = (uint64_t*)calloc(ROUNDS, sizeof(uint64_t));
+
+            for (int i = 0; i < ROUNDS; i++) {
+                tmp[i] = measure_bank_latency(
+                    (volatile char*)addr,
+                    (volatile char*)ref
+                );
+            }
+
+            uint64_t med = median(tmp, ROUNDS);
+            free(tmp);
+
+            if (med > THRESHOLD) {
+                bins[b].push_back(addr);
+                placed = true;
+                break;
+            }
+        }
+
+        // new bin if no match
+        if (!placed) {
+            for (int b = 0; b < BANKS; b++) {
+                if (bins[b].empty()) {
+                    bins[b].push_back(addr);
+                    break;
+                }
+            }
+        }
+    }
+
     return bins;
 }
 
