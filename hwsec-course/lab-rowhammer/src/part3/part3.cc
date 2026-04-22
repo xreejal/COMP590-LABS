@@ -9,10 +9,10 @@
 #include "../util.hh"
 
 #define BANKS 16
-#define CONSISTENCY_RATE 0.95
+#define CONSISTENCY_RATE 0.90
 // TODO: Threshold derived in part2
-#define THRESHOLD 800
-#define POOL_SIZE 1000
+#define THRESHOLD 400
+#define POOL_SIZE 5000
 #define ROUNDS  100
 
 
@@ -30,12 +30,14 @@ void print_bins(const std::array<std::vector<uint64_t>, BANKS>& bins) {
 }
 
 int gt(const void * a, const void * b) {
-   return ( *(int*)a - *(int*)b );
+   uint64_t val_a = *(uint64_t*)a;
+   uint64_t val_b = *(uint64_t*)b;
+   return (val_a < val_b) ? -1 : (val_a > val_b) ? 1 : 0;
 }
 
 uint64_t median(uint64_t* vals, size_t size) {
 	qsort(vals, size, sizeof(uint64_t), gt);
-	return ((size%2)==0) ? vals[size/2] : (vals[(size_t)size/2]+vals[((size_t)size/2+1)])/2;
+	return ((size%2)!=0) ? vals[size/2] : (vals[(size_t)size/2-1]+vals[((size_t)size/2)])/2;
 }
 
 /*
@@ -66,7 +68,8 @@ std::array<std::vector<uint64_t>, BANKS> bin_rows(uint64_t starting_addr, uint64
     }
 
     // Step 2: clustering
-    for (auto addr : candidates) {
+    for (size_t addr_idx = 0; addr_idx < candidates.size(); addr_idx++) {
+        auto addr = candidates[addr_idx];
 
         int best_bin = -1;
         uint64_t best_med = 0;
@@ -74,7 +77,7 @@ std::array<std::vector<uint64_t>, BANKS> bin_rows(uint64_t starting_addr, uint64
         // try matching against existing bins
         for (int b = 0; b < BANKS; b++) {
 
-            if (bins[b].size() < 5) continue;
+            if (bins[b].empty()) continue;
 
             uint64_t ref = bins[b][0];  // deterministic reference (more stable than rand)
 
@@ -95,6 +98,12 @@ std::array<std::vector<uint64_t>, BANKS> bin_rows(uint64_t starting_addr, uint64
             }
         }
 
+        // DEBUG: print first few addresses to see what's happening
+        if (addr_idx < 10) {
+            printf("Address %zu: best_bin=%d, best_med=%lu, threshold=%d\n",
+                   addr_idx, best_bin, best_med, THRESHOLD);
+        }
+
         // assign to best bin OR create new one
         if (best_bin != -1) {
             bins[best_bin].push_back(addr);
@@ -110,19 +119,22 @@ std::array<std::vector<uint64_t>, BANKS> bin_rows(uint64_t starting_addr, uint64
                 }
             }
 
-            // fallback: force into best available bin (prevents dropping data)
-            if (!placed) {
-                bins[0].push_back(addr);
-            }
+            // if no empty bin and no latency match, discard this address
+            (void)placed;
         }
     }
 
-    // Step 3: sanity check (optional debug)
+    // Step 3: sanity check and debug output
+    printf("\n=== Bin Distribution ===\n");
+    printf("Total candidates sampled: %zu\n", candidates.size());
+    int total_binned = 0;
     for (int i = 0; i < BANKS; i++) {
-        if (bins[i].empty()) {
-            printf("WARNING: empty bin %d\n", i);
-        }
+        printf("Bin[%d]: %zu addresses\n", i, bins[i].size());
+        total_binned += bins[i].size();
     }
+    printf("Total binned: %d / %zu (%.1f%%)\n", total_binned, candidates.size(),
+           100.0 * total_binned / candidates.size());
+    printf("\n");
 
     return bins;
 }
@@ -161,45 +173,59 @@ std::optional<uint64_t> find_candidate_function(const std::array<std::vector<uin
 
     std::array<std::function<uint64_t(uint64_t)>, 3> functions = {
         [](uint64_t x) {
-            return ((get_bit(x, 14) ^ get_bit(x, 17)) << 3) | 
-                   ((get_bit(x, 15) ^ get_bit(x, 18)) << 2) | 
+            return ((get_bit(x, 14) ^ get_bit(x, 17)) << 3) |
+                   ((get_bit(x, 15) ^ get_bit(x, 18)) << 2) |
                    ((get_bit(x, 16) ^ get_bit(x, 19)) << 1) |
                    ((get_bit(x, 7) ^ get_bit(x, 8) ^ get_bit(x, 9) ^ get_bit(x, 12) ^ get_bit(x, 13) ^ get_bit(x, 15) ^ get_bit(x, 16)));
         },
         [](uint64_t x) {
-            return ((get_bit(x, 15) ^ get_bit(x, 18)) << 3) | 
-                   ((get_bit(x, 16) ^ get_bit(x, 19)) << 2) | 
+            return ((get_bit(x, 15) ^ get_bit(x, 18)) << 3) |
+                   ((get_bit(x, 16) ^ get_bit(x, 19)) << 2) |
                    ((get_bit(x, 17) ^ get_bit(x, 20)) << 1) |
                    ((get_bit(x, 7) ^ get_bit(x, 8) ^ get_bit(x, 9) ^ get_bit(x, 12) ^ get_bit(x, 13) ^ get_bit(x, 18) ^ get_bit(x, 19)));
         },
 
         [](uint64_t x) {
-            return ((get_bit(x, 13) ^ get_bit(x, 17)) << 3) | 
-                   ((get_bit(x, 14) ^ get_bit(x, 18)) << 2) | 
+            return ((get_bit(x, 13) ^ get_bit(x, 17)) << 3) |
+                   ((get_bit(x, 14) ^ get_bit(x, 18)) << 2) |
                    ((get_bit(x, 15) ^ get_bit(x, 19)) << 1) |
                    ((get_bit(x, 7) ^ get_bit(x, 8) ^ get_bit(x, 9) ^ get_bit(x, 12) ^ get_bit(x, 13) ^ get_bit(x, 20) ^ get_bit(x, 21)));
         },
-                
+
     };
 
     for (size_t i = 0; i < functions.size(); i++) {
         auto &f = functions[i];
         bool good = true;
-        for (auto &bin: bins) {
+        double min_freq = 1.0;
+        printf("\n=== Function F%zu ===\n", i);
+        for (size_t bin_idx = 0; bin_idx < bins.size(); bin_idx++) {
+            auto &bin = bins[bin_idx];
+            if (bin.empty()) continue;
+
             uint64_t match_count = 0;
             std::vector<uint64_t> bank_comp(bin.size());
             std::transform(bin.begin(), bin.end(), bank_comp.begin(), f);
             auto [id, freq] = get_most_frequent(bank_comp);
+
+            printf("Bin[%zu] (size=%zu): consistency=%.2f%% (bank_id=%lu)\n",
+                   bin_idx, bin.size(), freq * 100.0, id);
+
             if (freq < CONSISTENCY_RATE) {
                 good = false;
-                break;
             }
+            min_freq = std::min(min_freq, freq);
         }
+        printf("Overall min consistency: %.2f%%\n", min_freq * 100.0);
+
         if (good) {
             // conflicting results
-            if (result.has_value())
+            if (result.has_value()) {
+                printf("WARNING: Multiple valid functions found!\n");
                 return std::nullopt;
+            }
             result = i;
+            printf("*** F%zu passes all bins! ***\n", i);
         }
     }
 
@@ -219,7 +245,29 @@ int main (int ac, char **av) {
 
     auto result = find_candidate_function(
         bin_rows((uint64_t)allocated_mem, (uint64_t)allocated_mem + ROW_SIZE * 4096));
-
+  uint64_t victim = 0x96ec3000;                                                                                                                                                                   
+                                                                                                                                                                                                  
+  auto f0 = [](uint64_t x) {                                                                                                                                                                      
+      return ((get_bit(x,14) ^ get_bit(x,17)) << 3) |                                                                                                                                             
+             ((get_bit(x,15) ^ get_bit(x,18)) << 2) |                                                                                                                                             
+             ((get_bit(x,16) ^ get_bit(x,19)) << 1) |                                                                                                                                             
+             ( get_bit(x,7)  ^ get_bit(x,8)  ^ get_bit(x,9) ^                                                                                                                                     
+               get_bit(x,12) ^ get_bit(x,13) ^ get_bit(x,15) ^ get_bit(x,16));                                                                                                                    
+  };                                                                                                                                                                                              
+                                                                                                                                                                                                  
+  uint64_t victim_bank = f0(victim);                                                                                                                                                              
+  printf("\n=== Q3-2: Victim 0x%lx -> bank %lu ===\n", victim, victim_bank);
+                                                                                                                                                                                                  
+  uint64_t base = (victim + 0x20000) & ~0x1e000UL;  // row+1, bits[16:13] cleared                                                                                                                 
+  base |= (victim & 0x1fff);                          // restore column                                                                                                                           
+                                                                                                                                                                                                  
+  for (int k = 0; k < 16; k++) {                        
+      uint64_t cand = base | ((uint64_t)k << 13);                                                                                                                                                 
+      uint64_t cand_bank = f0(cand);                                                                                                                                                              
+      printf("k=%2d addr=0x%lx bank=%lu %s\n",
+             k, cand, cand_bank,                                                                                                                                                                  
+             cand_bank == victim_bank ? "<-- SAME BANK" : "");
+  }  
     if (result.has_value()) {
         printf("Identified function %lu as correct\n", result.value());
     } else {
