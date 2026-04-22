@@ -246,7 +246,7 @@ int main (int ac, char **av) {
     auto result = find_candidate_function(
         bin_rows((uint64_t)allocated_mem, (uint64_t)allocated_mem + ROW_SIZE * 4096));
   uint64_t victim = 0x96ec3000;                                                                                                                                                                   
-                                                                                                                                                                                                  
+     //Uses F0 to create a reference and checks every key to find which key maps properly                                                                                                                                                                                        
   auto f0 = [](uint64_t x) {                                                                                                                                                                      
       return ((get_bit(x,14) ^ get_bit(x,17)) << 3) |                                                                                                                                             
              ((get_bit(x,15) ^ get_bit(x,18)) << 2) |                                                                                                                                             
