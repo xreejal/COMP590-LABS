@@ -16,7 +16,7 @@
 #define ROUNDS  100
 
 
-
+//Show Fast forward merge
 
 void print_bins(const std::array<std::vector<uint64_t>, BANKS>& bins) {
     for (size_t i = 0; i < BANKS; i++) {
