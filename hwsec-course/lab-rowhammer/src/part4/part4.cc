@@ -33,6 +33,7 @@ uint64_t hammer_addresses(uint64_t vict, uint64_t attA, uint64_t attB, uint64_t 
     volatile uint8_t *attB_ptr = (uint8_t*) attB;
 
     // Align to row base (8KB rows)
+    //Test git issues
     uint64_t vict_row = vict & ~(ROW_STRIDE - 1);
     uint64_t attA_row = attA & ~(ROW_STRIDE - 1);
     uint64_t attB_row = attB & ~(ROW_STRIDE - 1);
