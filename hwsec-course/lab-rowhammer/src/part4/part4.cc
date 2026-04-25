@@ -7,7 +7,7 @@
 #define BANK_FUNC_CAND 0
 
 // TODO: Try different combinations of these parameters to find the best ones for the machine!
-#define VIC_DATA 0xff
+#define VIC_DATA 0x00
 #define AGG_DATA 0xff
 
 #define NUM_HAMMER_ATTEMPTS 100
@@ -83,7 +83,8 @@ uint64_t hammer_addresses(uint64_t vict, uint64_t attA, uint64_t attB, uint64_t 
 
     for (int i = 0; i < ROW_STRIDE; i++) {
     if (((uint8_t*)vict_row)[i] != VIC_DATA) {
-        foundFlips++;   // count every flipped byte
+        foundFlips = 1;
+        break;
         }
     }
 
