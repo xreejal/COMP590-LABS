@@ -82,9 +82,8 @@ uint64_t hammer_addresses(uint64_t vict, uint64_t attA, uint64_t attB, uint64_t 
     // -----------------------------
 
     for (int i = 0; i < ROW_STRIDE; i++) {
-        if (((uint8_t*)vict_row)[i] != VIC_DATA) {
-            foundFlips = 1;
-            break;
+    if (((uint8_t*)vict_row)[i] != VIC_DATA) {
+        foundFlips++;   // count every flipped byte
         }
     }
 
