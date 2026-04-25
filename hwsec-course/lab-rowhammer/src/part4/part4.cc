@@ -67,7 +67,7 @@ uint64_t hammer_addresses(uint64_t vict, uint64_t attA, uint64_t attB, uint64_t 
     // 2. HAMMER
     // -----------------------------
 
-    for (int i = 0; i < 5000000; i++) {
+    for (int i = 0; i < 500000; i++) {
         one_block_access((uint64_t)attA_ptr);
         clflush((void*)attA_ptr);
 
