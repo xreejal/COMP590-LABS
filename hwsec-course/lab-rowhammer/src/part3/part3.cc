@@ -17,6 +17,7 @@
 
 
 //Show Fast forward merge
+//Verify part 3 working
 
 void print_bins(const std::array<std::vector<uint64_t>, BANKS>& bins) {
     for (size_t i = 0; i < BANKS; i++) {
