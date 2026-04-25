@@ -7,8 +7,8 @@
 #define BANK_FUNC_CAND 0
 
 // TODO: Try different combinations of these parameters to find the best ones for the machine!
-#define VIC_DATA 0x00
-#define AGG_DATA 0xff
+#define VIC_DATA 0xff
+#define AGG_DATA 0x00
 
 #define NUM_HAMMER_ATTEMPTS 100
 
