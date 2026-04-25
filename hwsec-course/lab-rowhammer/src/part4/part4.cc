@@ -36,10 +36,7 @@ uint64_t hammer_addresses(uint64_t vict, uint64_t attA, uint64_t attB, uint64_t 
     uint64_t vict_row = vict & ~(ROW_STRIDE - 1);
     uint64_t attA_row = attA & ~(ROW_STRIDE - 1);
     uint64_t attB_row = attB & ~(ROW_STRIDE - 1);
-
-    printf("VIC row base: %lx\n", vict_row);
-    printf("ATT A row:    %lx\n", attA & ~(ROW_STRIDE - 1));
-    printf("ATT B row:    %lx\n", attB & ~(ROW_STRIDE - 1));
+    
 
     // -----------------------------
     // 1. PRIME
@@ -52,6 +49,11 @@ uint64_t hammer_addresses(uint64_t vict, uint64_t attA, uint64_t attB, uint64_t 
     memset((void*)attA_row, AGG_DATA, ROW_STRIDE);
     memset((void*)attB_row, AGG_DATA, ROW_STRIDE);
 
+    printf("victim check: %x %x %x\n",
+    ((uint8_t*)vict_row)[0],
+    ((uint8_t*)vict_row)[1],
+    ((uint8_t*)vict_row)[2]);
+
     // 🔑 CRITICAL: Flush ALL rows after priming
     for (int i = 0; i < ROW_STRIDE; i += 64) {
         clflush((void*)(vict_row + i));
@@ -60,11 +62,6 @@ uint64_t hammer_addresses(uint64_t vict, uint64_t attA, uint64_t attB, uint64_t 
     }
 
     mfence();
-
-    for (int i = 0; i < 16; i++) {
-        printf("%02x ", ((uint8_t*)vict_row)[i]);
-    }
-    printf("\n");
 
     // -----------------------------
     // 2. HAMMER
