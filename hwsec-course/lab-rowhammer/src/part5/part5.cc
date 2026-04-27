@@ -106,6 +106,7 @@ uint32_t verifyAndRepair(uint32_t encoded) {
     } else if (result.error == PARITY_ERROR) {
         out = flipBit(encoded, TOTAL_BITS - 1);
     }
+    //Brenton finish on apurwa computer
 
     return out;
 }
