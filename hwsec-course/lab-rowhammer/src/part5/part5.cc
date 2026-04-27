@@ -98,17 +98,9 @@ uint32_t verifyAndRepair(uint32_t encoded) {
     uint32_t out = encoded;
 
     if (result.error == SINGLE_ERROR) {
-    int count = 0;
-
-    for (int i = 0; i < TOTAL_BITS; i++) {
-        if (!isParityBit(i)) {
-            if (count == result.syndrome) {
-                out = flipBit(out, i);
-                break;
-            }
-            count++;
-        }
-    }
+    out = flipBit(encoded, result.syndrome);
+} else if (result.error == PARITY_ERROR) {
+    out = flipBit(out, TOTAL_BITS - 1);
 
     } else if (result.error == PARITY_ERROR) {
         // Flip P5 (last bit)
