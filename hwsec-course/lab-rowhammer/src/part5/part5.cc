@@ -90,23 +90,23 @@ struct hamming_result findHammingErrors(uint32_t encoded) {
 // Use findHammingErrors to check if there's an error
 // If there's an error, correct it!
 uint32_t verifyAndRepair(uint32_t encoded) {
-
-    // Determine the error type
     struct hamming_result result = findHammingErrors(encoded);
 
-    // TODO: Exercise 5-4, If the error type is correctable, correct it here!
     uint32_t out = encoded;
 
     if (result.error == SINGLE_ERROR) {
-    out = flipBit(encoded, result.syndrome);
-} else if (result.error == PARITY_ERROR) {
-    out = flipBit(out, TOTAL_BITS - 1);
-
+        // Try flipping each bit until findHammingErrors reports NO_ERROR
+        for (int i = 0; i < TOTAL_BITS; i++) {
+            uint32_t candidate = flipBit(encoded, i);
+            if (findHammingErrors(candidate).error == NO_ERROR) {
+                out = candidate;
+                break;
+            }
+        }
     } else if (result.error == PARITY_ERROR) {
-        // Flip P5 (last bit)
-        out = flipBit(out, TOTAL_BITS - 1);
+        out = flipBit(encoded, TOTAL_BITS - 1);
     }
-    //4/5 pass
+
     return out;
 }
 
