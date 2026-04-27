@@ -105,7 +105,7 @@ uint32_t verifyAndRepair(uint32_t encoded) {
         // Flip P5 (last bit)
         out = flipBit(out, TOTAL_BITS - 1);
     }
-
+    //4/5 pass
     return out;
 }
 
