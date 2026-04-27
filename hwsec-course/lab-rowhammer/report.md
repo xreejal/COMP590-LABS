@@ -1,40 +1,115 @@
-## 1-2
+Credentials:
+Username: group8
+Password: oYWhDp2YOGLEUaRc
+Connect on VPN if off-campus
+Ssh group8@152.2.130.63
+Password: oYWhDp2YOGLEUaRc
+Use Cisco VPN if off campus
 
-**In a 64-bit system using 4KB pages, which bits are used to represent the page offset, and which are used to represent the page number?**
+$ make clean
+$ make 
+$ ./launch.sh partX
+Submitting job(s). 1 job(s) submitted to cluster XX. All jobs done.
+$ cat log/partX.out 
+virt_to_phys test failed!
 
-**How about for a 64-bit system using 2MB pages? Which bits are used for page number and which are for page offset?**
+Discussion 1-2
+4KB pages
+Offset: bits 0–11
+Page number: bits 12–63
+2MB pages
+Offset: bits 0–20
+Page number: bits 21–63
+# of 2MB pages in 2GB
+1024 pages
 
-**In a 2GB buffer, how many 2MB hugepages are there?**
+Discussion Question 2-1
+Row ID: 0x4b76
+Column ID: 0x1000
+Attacker addresses:
+16 addresses with:
 
-## 2-1
+ row = 0x4b77
+column = 0x1000
+same bank id (via XOR-invariant bit flips in bits 7–20)
 
-**Given a victim address 0x96ec3000, what is the value of its Row id? The value of its Column id?**
+Discussion Question 2-3
+Around 400 cycles is a safe barrier between the faster samples of around 330, and the slower samples of around 470.
 
-**For the same address, assume an arbitrary XOR function for computing the Bank id, list all possible attacker addresses whose Row id is one more than 0x96ec3000's Row id and all the other ids match, including the Bank id and Column id. Hint: there should be 16 such addresses total.**
 
-## 2-3
 
-**Analyze the statistics produced by your code when running part2, and report a threshold to distinguish the bank conflict.**
+Discussion 3.2:
 
-## 3-2
 
-**Based on the XOR function you reverse-engineered, determine which of the 16 candidate addresses you derived in Discussion Question 2-1 maps to the same bank.**
+We look into k=3, this way  we look back at this
 
-## 4-2
+And notice that a14 and a17 must be the same, which means when changing a row address by 1, we need to also make sure A14 changes. For this reason we need to set A14 to 1. Since 14-16 are not used in the b0 calculation, we can ignore them. That means the only bank bit we have left is 13 which should output 0 in the end like when we tested the previous row. This means we should keep it unchanged and thus  13-16 should be 0011 or 3
 
-**The default data pattern in part4.cc is to set aggressor rows to all 1’s and victim row to all 0’s. Try different data pattern and include the bitflip observation statistics in the table below. Then answer the following questions:**
+4-2 Discussion Questions
 
-**Do your results match your expectations? What is the best pattern to trigger flips effectively?**
+Data Pattern(Victim/Aggresor)
+0x00/0xff
+0xff/0x00
+0x00/0x00
+0xff/0xff
+Number of Flips (100 trials)
+# of rows bit flips occur in
+# total count
+100
+711
+100
+798
+0
+0
+1
+0
 
-## 5-1
 
-**Given the ECC type descriptions listed above, fill in the following table (assuming a data length of 4). For correction/detection, only answer "Yes" if it can always correct/detect (and "No" if there is ever a case where the scheme can fail to correct/detect). We've filled in the first line for you.**
+Yes, they match our expectations. Opposing patterns work better. With more tests, likely it will reveal flipping the victim from 0 to 1 works slightly better than the opposite. 
 
-## 5-3
+Meta comment: We have some confusion over if we are supposed to record if a bit flip occurred at all in the row at all or the total number. We count both in the table. 
 
-**When a single bit flip is detected, describe how Hamming(22,16) can correct this error.**
+5-1: ECC Comparison Table (data length = 4)
 
-## 5-5
 
-**Can the Hamming(22,16) code we implemented always protect us from rowhammer attacks? If not, describe how a clever attacker could work around this scheme.**
+1-Repetition (No ECC)
+2-Repetition
+3-Repetition
+Single Parity Bit
+Hamming(7,4)
+Code Rate (Data Bits / Total Bits)
+4/4 = 1.0
+4/8 = 0.5
+4/12 = 0.33
+4/5 = 0.8
+4/7 ≈ 0.57
+Max Errors Can Detect
+0
+1
+2
+1
+2
+Max Errors Can Correct
+0
+0
+1
+0
+1
+
+Reasoning:
+2-Repetition: 1011 1011 — a single flip makes the two copies disagree, so you know an error occurred but can't tell which copy is correct.
+3-Repetition: 1011 1011 1011 — majority vote corrects 1 error; if 2 bits flip in the same position across copies you can detect but not always correct.
+Single Parity Bit: XOR of all bits detects any odd number of flips (so 1), but two flips cancel out and go undetected.
+Hamming(7,4): Designed to always correct 1 error and detect 2.
+
+5-3: Correcting a Single Bit Flip in Hamming(22,16)
+When a single bit flip is detected (syndrome ≠ 0, overall parity = 1), the syndrome value directly encodes the position of the corrupted bit within the 22-bit encoded word. To correct the error, simply flip the bit at the position indicated by the syndrome back to its original value. Since only one bit changed, this restores the data to its original correct state.
+
+5-5: Can Hamming(22,16) Always Protect Against Rowhammer?
+No, it cannot always protect against Rowhammer. Here's why:
+Hamming(22,16) is a SECDED code — it can correct only 1-bit errors and merely detect 2-bit errors (without correcting them). A clever attacker can defeat it in two ways:
+Double-bit flip in the same word: If Rowhammer flips 2 bits within the same 22-bit protected word, the error is detected but uncorrectable — the system has no way to recover the original data.
+Targeted double-bit flip: An attacker who knows the ECC layout can deliberately hammer two specific rows such that exactly 2 bits flip within the same codeword. Since the syndrome cannot distinguish which two bits flipped, the error cannot be corrected. The attacker could repeat this to cause data corruption that the ECC silently fails to fix.
+Beyond double flips: If Rowhammer causes 3+ bit flips in a word, even detection is not guaranteed — the errors can cancel out in the parity check and appear as no error at all.
+In practice, Rowhammer can reliably induce multiple bit flips with enough hammering iterations, making SECDED ECC an insufficient defense against a determined attacker.
 
