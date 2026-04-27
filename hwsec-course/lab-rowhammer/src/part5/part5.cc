@@ -17,8 +17,36 @@ uint8_t parity_eqs[5][16] = {                 \
 uint32_t genParity(uint32_t data) {
     uint32_t parity = 0;
 
-    // TODO: Exercise 5-2, Generate the parity bits for the data
-    
+    // Compute P0–P4
+    for (int p = 0; p < 5; p++) {
+        uint32_t bit = 0;
+        for (int d = 0; d < 16; d++) {
+            if (parity_eqs[p][d]) {
+                bit ^= getBit(data, d);
+            }
+        }
+        if (bit) {
+            parity |= (1 << p);
+        }
+    }
+
+    // Compute P5 (overall parity)
+    uint32_t overall = 0;
+
+    // XOR all data bits
+    for (int d = 0; d < 16; d++) {
+        overall ^= getBit(data, d);
+    }
+
+    // XOR P0–P4
+    for (int p = 0; p < 5; p++) {
+        overall ^= getBit(parity, p);
+    }
+
+    if (overall) {
+        parity |= (1 << 5);
+    }
+
     return parity;
 }
 
