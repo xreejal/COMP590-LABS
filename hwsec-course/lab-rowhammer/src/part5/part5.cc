@@ -97,6 +97,15 @@ uint32_t verifyAndRepair(uint32_t encoded) {
     // TODO: Exercise 5-4, If the error type is correctable, correct it here!
     uint32_t out = encoded;
 
+    if (result.error == SINGLE_ERROR) {
+        // Flip the bit indicated by syndrome
+        out = flipBit(out, result.syndrome);
+
+    } else if (result.error == PARITY_ERROR) {
+        // Flip P5 (last bit)
+        out = flipBit(out, TOTAL_BITS - 1);
+    }
+
     return out;
 }
 
