@@ -109,7 +109,6 @@ uint32_t verifyAndRepair(uint32_t encoded) {
             count++;
         }
     }
-}
 
     } else if (result.error == PARITY_ERROR) {
         // Flip P5 (last bit)
